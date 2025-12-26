@@ -1,0 +1,15 @@
+{
+  "name": "petit-wgsl-renderer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@webgpu/types": "^0.1.68",
+    "webpack": "^5.104.1"
+  }
+}

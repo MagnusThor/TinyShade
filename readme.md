@@ -6,6 +6,61 @@ TinyShade simplifies the complex WebGPU binding model into a chainable API. It h
 
 ----------
 
+## 🚀 Quick Start: The Stack
+This example demonstrates the power of the full chain: loading external textures, sharing common raymarching math, running a compute simulation, and rendering a final lit scene.
+
+```typescript
+
+import { TinyShade } from "./TinyShade";
+
+const start = async () => {
+    const app = await TinyShade.create("canvas");
+
+    (await app
+        // 1. Load assets once; accessible by variable name in all shader stages
+        .addTexture("matcap", "./textures/gold_matcap.jpg")
+        .addTexture("noise", "./textures/blue_noise.png")
+        
+        // 2. Inject shared math (Raymarching helpers, etc.) automatically
+        .addCommon(`
+            fn sdfSphere(p: vec3f, s: f32) -> f32 { return length(p) - s; }
+            fn getNormal(p: vec3f) -> vec3f {
+                let e = vec2f(0.01, 0.0);
+                return normalize(vec3f(
+                    sdfSphere(p+e.xyy, 1.) - sdfSphere(p-e.xyy, 1.),
+                    sdfSphere(p+e.yxy, 1.) - sdfSphere(p-e.yxy, 1.),
+                    sdfSphere(p+e.yyx, 1.) - sdfSphere(p-e.yyx, 1.)
+                ));
+            }
+        `)
+        
+        // 3. Compute Pass: Global assets (like 'noise') are available here
+        .addCompute(0, `
+            fn main(@builtin(global_invocation_id) id: vec3u) {
+                textureStore(outTex, id.xy, vec4f(0.0)); 
+            }
+        `)
+        
+        // 4. Main Pass: Final rendering using the 'matcap' asset
+        .main(`
+            @fragment fn main(in: VSOut) -> @location(0) vec4f {
+                let p = vec3f(in.uv * 2.0 - 1.0, 1.0);
+                let n = getNormal(p);
+                
+                let uv = n.xy * 0.5 + 0.5;
+                let lit = textureSample(matcap, samp, uv).rgb;
+                
+                return vec4f(lit, 1.0);
+            }
+        `)
+    ).run();
+};
+
+start();
+
+```
+
+
 ##  Core API: Step-by-Step
 
 TinyShade allows you to chain an arbitrary number of Compute and Fragment passes ($1 \dots n$). The execution follows the order of your method calls.
@@ -313,12 +368,30 @@ View the example here [https://magnusthor.github.io/TinyShade/public/example-3.h
    .run();
 ```
 
+## 🌑 Background & Origins
+
+TinyShade is the spiritual successor to my previous work on _demolishedRenderer_. It was originally conceived as a technical entry for the "[🎄✨🎉 So You Think You Can Code 2025 Advent Calendar 🎉✨🎄](https://github.com/MagnusThor/so-you-think-you-can-code-2025)". 
+
+Although the timeline didn't align for a December 24th release, the engine has evolved into a focused, production-ready framework for the WebGPU era.
+
+_*The core philosophy is simple: Small footprint, rich functionality*_.
+
+Inspired by the workflow of classic demoscene tools and modern shader sandboxes, TinyShade is designed to lower the barrier to entry for WebGPU. It handles the "boring" parts—resource binding, ping-ponging, and pipeline synchronization—so you can spend your time where it matters: inside the WGSL code.
+
 ## ⚡ Technical Highlights
 
--   **Automatic Vertexing**: Injects an optimized zero-input full-screen triangle.
+TinyShade abstracts the high-friction parts of WebGPU, allowing for a "Shadertoy-like" experience without sacrificing performance.
+
+-   **Zero-Input Vertexing**: Automatically injects an optimized, zero-attribute full-screen triangle. By using index-based vertex positioning in the internal vertex shader, the engine eliminates the need for vertex buffers, reducing memory overhead and API calls.
     
--   **Binding Safety**: Layout-first approach prevents "Binding index mismatch" crashes.
+-   **Sequential Binding Safety**: Uses a layout-first compilation strategy. This ensures that uniforms, samplers, pass textures, and global assets always receive deterministic `@binding` indices, effectively preventing the common "Binding index mismatch" crashes.
     
--   **Smart Dispatch**: Automatically calculates optimal grid dispatch based on `u.resolution`.
+-   **Smart Grid Dispatch**: For 2D compute modes, the engine automatically calculates the optimal workgroup count based on your `u.resolution`. It handles the ceiling math internally to ensure every pixel is covered, even when your canvas dimensions aren't a multiple of 8.
+    
+-   **Temporal Texture Stack**: Orchestrates the ping-ponging of `GPUTexture` pairs for every pass. This allows you to sample `prevPassN` with zero manual management, enabling effortless frame-to-frame feedback loops and temporal accumulation.
+    
+-   **Async Dependency Resolution**: The `main()` method acts as a synchronization barrier. It ensures all global textures are fully decoded, uploaded to the GPU, and that all pipelines are compiled before the first frame is dispatched.
     
 
+
+Magnus Thor - December 2025

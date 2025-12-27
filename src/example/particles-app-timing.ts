@@ -6,8 +6,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const gpuTimer = new WebGPUTiming((app as any).device);
     const avg = new RollingAverage(60);
 
-    app.setUniforms()
-    .main(`
+    (await app.setUniforms()
+        .main(`
         // Mandelbox Parameters
         const SCALE = 2.8;
         const MIN_RAD_SQ = 0.25;
@@ -108,6 +108,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
             return vec4f(pow(col, vec3f(0.4545)), 1.0); // Gamma correction
         }
-    `)
+    `))
     .run();
 });

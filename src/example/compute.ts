@@ -3,11 +3,11 @@ import { TinyShade } from "../TinyShade";
 document.addEventListener("DOMContentLoaded", async () => {
     const app = await TinyShade.create("canvas");
 
-    app.setUniforms()
-    /**
-     * COMPUTE PASS: Fractal Orbit Trap
-     */
-    .addCompute(0,`
+    (await app.setUniforms()
+        /**
+         * COMPUTE PASS: Fractal Orbit Trap
+         */
+        .addCompute(0, `
          const AA: i32 = 3;
         const sqrt2_inv: f32 = 0.70710678118;
         //##WORKGROUP_SIZE
@@ -74,10 +74,10 @@ document.addEventListener("DOMContentLoaded", async () => {
             textureStore(outTex, id.xy, vec4f(col, 1.0)); 
         }
     `)
-    /**
-     * MAIN: Final Post-Process
-     */
-    .main(`
+        /**
+         * MAIN: Final Post-Process
+         */
+        .main(`
         @fragment fn main(in: VSOut) -> @location(0) vec4f {
             let uv = in.uv;
             let fractal = textureSample(computeTex, samp, uv).rgb;
@@ -88,6 +88,6 @@ document.addEventListener("DOMContentLoaded", async () => {
             
             return vec4f(color, 1.0);
         }
-    `)
+    `))
     .run();
 });

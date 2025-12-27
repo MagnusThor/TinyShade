@@ -6,15 +6,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     const COUNT = 1_000_000; 
     const STORAGE_SIZE = COUNT * 4; 
 
-    app.setUniforms(l => {
-        l.addUniform({ name: "count", value: COUNT })
-   
+    (await app.setUniforms(l => {
+        l.addUniform({ name: "count", value: COUNT });
+
     })
-    /**
-     * COMPUTE PASS: Preserved precisely.
-     * We hijack the Alpha channel to store Z-depth for the DOF effect.
-     */
-    .addCompute(STORAGE_SIZE, `
+        /**
+         * COMPUTE PASS: Preserved precisely.
+         * We hijack the Alpha channel to store Z-depth for the DOF effect.
+         */
+        .addCompute(STORAGE_SIZE, `
         ##WORKGROUP_SIZE
         fn main(@builtin(global_invocation_id) id: vec3u) {
             let i = id.x;
@@ -66,11 +66,11 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
         }
     `)
-    /**
-     * PASS 0: Temporal Accumulation & DOF
-     * This uses prevPass0 to blend frames over time.
-     */
-    .addPass(`
+        /**
+         * PASS 0: Temporal Accumulation & DOF
+         * This uses prevPass0 to blend frames over time.
+         */
+        .addPass(`
         @fragment fn main(in: VSOut) -> @location(0) vec4f {
             let uv = in.uv;
             
@@ -97,12 +97,12 @@ document.addEventListener("DOMContentLoaded", async () => {
             return vec4f(fin, 1.0);
         }
     `)
-    /**
-     * MAIN: Post-Process Compositing
-     * We swap textureSample(computeTex...) for textureSample(pass0...)
-     * to see the accumulated results.
-     */
-    .main(`
+        /**
+         * MAIN: Post-Process Compositing
+         * We swap textureSample(computeTex...) for textureSample(pass0...)
+         * to see the accumulated results.
+         */
+        .main(`
         @fragment fn main(in: VSOut) -> @location(0) vec4f {
             let uv = in.uv;
             let centerDist = length(uv - 0.5);
@@ -121,6 +121,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
             return vec4f(mapped * smoothstep(1.0, 0.2, centerDist), 1.0);
         }
-    `)
+    `))
     .run();
 });

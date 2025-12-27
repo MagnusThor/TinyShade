@@ -3,7 +3,7 @@ import { TinyShade } from "../TinyShade";
 document.addEventListener("DOMContentLoaded", async () => {
     const app = await TinyShade.create("canvas");
 
-      app.setUniforms().addPass(`
+      (await app.setUniforms().addPass(`
         // Helper functions injected into the pass
         fn hash22(p: vec2f) -> vec2f {
             var p3 = fract(vec3f(p.xyx) * vec3f(0.1031, 0.1030, 0.0973));
@@ -67,7 +67,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             return vec4f(final_rgb, 1.0);
         }
     `)
-    .main(`
+        .main(`
         @fragment 
         fn main(in: VSOut) -> @location(0) vec4f {
             let uv = in.uv;
@@ -76,6 +76,6 @@ document.addEventListener("DOMContentLoaded", async () => {
           
             return vec4f(fin, 1.0);
         }
-    `)
+    `))
     .run();
 });

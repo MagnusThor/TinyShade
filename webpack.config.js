@@ -6,6 +6,7 @@ module.exports = {
     entry: {
         "particles": "/build/example/particles-app.js",
         "particles-dof": "/build/example/particles-dof-app.js",
+        "particles-timing": "/build/example/particles-app-timing.js",
         "prev-pass": "/build/example/prev-pass.js",
         "singepass":"/build/example/singepass-app.js",
         "compute":"/build/example/compute.js"

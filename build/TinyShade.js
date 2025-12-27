@@ -20,6 +20,7 @@ class TinyShade {
     mainPassShader = "";
     mainPipeline;
     mainBindGroupLayout;
+    mainInterceptors;
     constructor(canvas) {
         this.canvas = canvas;
         this.uniforms = new UniformLayout_1.UniformLayout([this.canvas.width, this.canvas.height, window.devicePixelRatio]);
@@ -32,7 +33,10 @@ class TinyShade {
     }
     async initWebGPU() {
         const adapter = await navigator.gpu.requestAdapter();
-        this.device = await adapter.requestDevice();
+        const hasTimestamp = adapter?.features.has("timestamp-query");
+        this.device = await adapter.requestDevice({
+            requiredFeatures: hasTimestamp ? ["timestamp-query"] : []
+        });
         const x = 8;
         this.workgroupLimits = { str: `@workgroup_size(${x}, 1, 1)` };
         this.context = this.canvas.getContext("webgpu");
@@ -55,55 +59,31 @@ class TinyShade {
     }
     addCompute(size, wgsl) {
         if (size > 0) {
-            this.storageBuffer = this.device.createBuffer({
-                size: size * 4,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-            });
+            this.storageBuffer = this.device.createBuffer({ size: size * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         }
         const dataBinding = size > 0 ? `@group(0) @binding(1) var<storage, read_write> data: array<f32>;` : "";
         const workgroupFullAttribute = `@compute ${this.workgroupLimits.str}`;
-        const code = `
-        ${this.uniforms.wgslStruct}
-        @group(0) @binding(0) var<uniform> u: Uniforms;
-        ${dataBinding}
-        @group(0) @binding(2) var outTex: texture_storage_2d<rgba8unorm, write>;
-        
-        ${wgsl.replace("##WORKGROUP_SIZE", workgroupFullAttribute)}
-    `;
+        const code = `${this.uniforms.wgslStruct}\n@group(0) @binding(0) var<uniform> u: Uniforms;\n${dataBinding}\n@group(0) @binding(2) var outTex: texture_storage_2d<rgba8unorm, write>;\n${wgsl.replace("##WORKGROUP_SIZE", workgroupFullAttribute)}`;
         const mod = this.device.createShaderModule({ code });
-        this.computePipeline = this.device.createComputePipeline({
-            layout: 'auto',
-            compute: { module: mod, entryPoint: 'main' }
-        });
-        const entries = [
-            { binding: 0, resource: { buffer: this.uniformBuffer } },
-            { binding: 2, resource: this.storageTexture.createView() }
-        ];
-        if (size > 0 && this.storageBuffer) {
+        this.computePipeline = this.device.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint: 'main' } });
+        const entries = [{ binding: 0, resource: { buffer: this.uniformBuffer } }, { binding: 2, resource: this.storageTexture.createView() }];
+        if (size > 0 && this.storageBuffer)
             entries.push({ binding: 1, resource: { buffer: this.storageBuffer } });
-        }
-        this.computeBindGroup = this.device.createBindGroup({
-            layout: this.computePipeline.getBindGroupLayout(0),
-            entries: entries
-        });
+        this.computeBindGroup = this.device.createBindGroup({ layout: this.computePipeline.getBindGroupLayout(0), entries });
         return this;
     }
-    addPass(wgsl) {
+    addPass(wgsl, interceptors) {
         const createTex = () => this.device.createTexture({
             size: [this.canvas.width, this.canvas.height],
             format: "bgra8unorm",
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
         });
-        this.passes.push({
-            shader: wgsl,
-            textures: [createTex(), createTex()],
-            pipelines: [],
-            bindGroups: []
-        });
+        this.passes.push({ shader: wgsl, textures: [createTex(), createTex()], pipelines: [], bindGroups: [], interceptors });
         return this;
     }
-    main(wgsl) {
+    main(wgsl, interceptors) {
         this.mainPassShader = wgsl;
+        this.mainInterceptors = interceptors;
         this.compile();
         return this;
     }
@@ -117,24 +97,16 @@ class TinyShade {
         [...this.passes, { shader: this.mainPassShader, isMain: true }].forEach((p, i) => {
             const isMain = p.isMain;
             const numPassesAvailable = isMain ? this.passes.length : i + 1;
-            let passBindings = `${this.uniforms.wgslStruct}
-                @group(0) @binding(0) var<uniform> u: Uniforms;
-                @group(0) @binding(1) var samp: sampler;
-            `;
+            let passBindings = `${this.uniforms.wgslStruct}\n@group(0) @binding(0) var<uniform> u: Uniforms;\n@group(0) @binding(1) var samp: sampler;\n`;
             for (let j = 0; j < numPassesAvailable; j++) {
-                passBindings += `@group(0) @binding(${2 + j * 2}) var pass${j}: texture_2d<f32>;\n`;
-                passBindings += `@group(0) @binding(${2 + j * 2 + 1}) var prevPass${j}: texture_2d<f32>;\n`;
+                passBindings += `@group(0) @binding(${2 + j * 2}) var pass${j}: texture_2d<f32>;\n@group(0) @binding(${2 + j * 2 + 1}) var prevPass${j}: texture_2d<f32>;\n`;
             }
             passBindings += `@group(0) @binding(${2 + this.passes.length * 2}) var computeTex: texture_2d<f32>;`;
             const code = `${vert}${passBindings}${p.shader}`;
             const mod = this.device.createShaderModule({ code });
-            const layoutEntries = [
-                { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-                { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } }
-            ];
+            const layoutEntries = [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }, { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } }];
             for (let j = 0; j < numPassesAvailable; j++) {
-                layoutEntries.push({ binding: 2 + j * 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } });
-                layoutEntries.push({ binding: 2 + j * 2 + 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } });
+                layoutEntries.push({ binding: 2 + j * 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }, { binding: 2 + j * 2 + 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } });
             }
             layoutEntries.push({ binding: 2 + this.passes.length * 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } });
             const layout = this.device.createBindGroupLayout({ entries: layoutEntries });
@@ -145,13 +117,9 @@ class TinyShade {
             });
             const createBG = (writeIdx) => {
                 const readIdx = 1 - writeIdx;
-                const entries = [
-                    { binding: 0, resource: { buffer: this.uniformBuffer } },
-                    { binding: 1, resource: sampler }
-                ];
+                const entries = [{ binding: 0, resource: { buffer: this.uniformBuffer } }, { binding: 1, resource: sampler }];
                 for (let j = 0; j < numPassesAvailable; j++) {
-                    entries.push({ binding: 2 + j * 2, resource: this.passes[j].textures[readIdx].createView() });
-                    entries.push({ binding: 2 + j * 2 + 1, resource: this.passes[j].textures[readIdx].createView() });
+                    entries.push({ binding: 2 + j * 2, resource: this.passes[j].textures[readIdx].createView() }, { binding: 2 + j * 2 + 1, resource: this.passes[j].textures[readIdx].createView() });
                 }
                 entries.push({ binding: 2 + this.passes.length * 2, resource: this.storageTexture.createView() });
                 return this.device.createBindGroup({ layout, entries });
@@ -166,7 +134,7 @@ class TinyShade {
             }
         });
     }
-    run() {
+    run(gpuTimer) {
         const sampler = this.device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
         const frame = (now) => {
             this.frameCounter++;
@@ -175,49 +143,60 @@ class TinyShade {
             this.uniforms.update((now - this.startTime) / 1000);
             Buffer_1.Buffer.write(this.device, this.uniformBuffer, this.uniforms.float32Array);
             const enc = this.device.createCommandEncoder();
-            const clearRP = enc.beginRenderPass({
-                colorAttachments: [{ view: this.storageTexture.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }]
-            });
+            const clearRP = enc.beginRenderPass({ colorAttachments: [{ view: this.storageTexture.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] });
             clearRP.end();
             if (this.computePipeline) {
                 const cp = enc.beginComputePass();
                 cp.setPipeline(this.computePipeline);
                 cp.setBindGroup(0, this.computeBindGroup);
-                const workgroupsX = Math.ceil(this.canvas.width / 8);
-                const workgroupsY = Math.ceil(this.canvas.height / 8);
-                cp.dispatchWorkgroups(workgroupsX, workgroupsY, 1);
+                cp.dispatchWorkgroups(Math.ceil(this.canvas.width / 8), Math.ceil(this.canvas.height / 8), 1);
                 cp.end();
             }
             this.passes.forEach(p => {
-                const rp = enc.beginRenderPass({
-                    colorAttachments: [{
-                            view: p.textures[writeIdx].createView(),
-                            loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1]
-                        }]
-                });
+                const res = p.interceptors?.onBefore?.(this.uniforms);
+                if (res?.uniforms) {
+                    const data = res.uniforms instanceof Float32Array ? res.uniforms : new Float32Array(res.uniforms);
+                    Buffer_1.Buffer.write(this.device, this.uniformBuffer, data);
+                }
+                const descriptor = {
+                    colorAttachments: [{ view: p.textures[writeIdx].createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }],
+                    ...(res?.descriptor || {})
+                };
+                const rp = enc.beginRenderPass(descriptor);
                 rp.setPipeline(p.pipelines[writeIdx]);
                 rp.setBindGroup(0, p.bindGroups[writeIdx]);
                 rp.draw(3);
                 rp.end();
             });
-            const mainEntries = [
-                { binding: 0, resource: { buffer: this.uniformBuffer } },
-                { binding: 1, resource: sampler }
-            ];
+            const mainRes = this.mainInterceptors?.onBefore?.(this.uniforms);
+            if (mainRes?.uniforms) {
+                const data = mainRes.uniforms instanceof Float32Array ? mainRes.uniforms : new Float32Array(mainRes.uniforms);
+                Buffer_1.Buffer.write(this.device, this.uniformBuffer, data);
+            }
+            const mainEntries = [{ binding: 0, resource: { buffer: this.uniformBuffer } }, { binding: 1, resource: sampler }];
             for (let j = 0; j < this.passes.length; j++) {
-                mainEntries.push({ binding: 2 + j * 2, resource: this.passes[j].textures[writeIdx].createView() });
-                mainEntries.push({ binding: 2 + j * 2 + 1, resource: this.passes[j].textures[readIdx].createView() });
+                mainEntries.push({ binding: 2 + j * 2, resource: this.passes[j].textures[writeIdx].createView() }, { binding: 2 + j * 2 + 1, resource: this.passes[j].textures[readIdx].createView() });
             }
             mainEntries.push({ binding: 2 + this.passes.length * 2, resource: this.storageTexture.createView() });
             const dynamicMainBG = this.device.createBindGroup({ layout: this.mainBindGroupLayout, entries: mainEntries });
             const mp = enc.beginRenderPass({
-                colorAttachments: [{ view: this.context.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }]
+                colorAttachments: [{ view: this.context.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }],
+                ...(mainRes?.descriptor || {})
             });
             mp.setPipeline(this.mainPipeline);
             mp.setBindGroup(0, dynamicMainBG);
             mp.draw(3);
             mp.end();
+            if (gpuTimer?.supportsTimeStampQuery && gpuTimer.querySet) {
+                enc.resolveQuerySet(gpuTimer.querySet, 0, gpuTimer.maxQueries || 20, gpuTimer.resolveBuffer, 0);
+                enc.copyBufferToBuffer(gpuTimer.resolveBuffer, 0, gpuTimer.readBuffer, 0, gpuTimer.resolveBuffer.size);
+            }
             this.device.queue.submit([enc.finish()]);
+            const frameId = this.frameCounter;
+            this.device.queue.onSubmittedWorkDone().then(() => {
+                this.passes.forEach(p => p.interceptors?.onAfter?.({ frame: frameId, timeMS: 0 }));
+                this.mainInterceptors?.onAfter?.({ frame: frameId, timeMS: 0 });
+            });
             requestAnimationFrame(frame);
         };
         requestAnimationFrame(frame);

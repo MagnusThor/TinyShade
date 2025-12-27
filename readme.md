@@ -89,6 +89,8 @@ app.addCommon(`
     }
 `);
 
+```
+
 ### 3. Set Uniforms
 
 Define custom data in JS. TinyShade automatically injects the **standard built-ins** into the `u` struct for every shader. You do not need to define `time` or `resolution` manually.

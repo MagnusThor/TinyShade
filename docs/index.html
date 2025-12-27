@@ -1,0 +1,323 @@
+<!DOCTYPE html><html class="default" lang="en" data-base="./"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>tinyshade</title><meta name="description" content="Documentation for tinyshade"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script defer src="assets/main.js"></script><script async src="assets/icons.js" id="tsd-icons-script"></script><script async src="assets/search.js" id="tsd-search-script"></script><script async src="assets/navigation.js" id="tsd-nav-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar"><div class="tsd-toolbar-contents container"><a href="index.html" class="title">tinyshade</a><div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/><ul role="listbox" id="tsd-search-results"></ul><div id="tsd-search-status" aria-live="polite" aria-atomic="true"><div>Preparing search index...</div></div></dialog><a href="#" class="tsd-widget menu" id="tsd-toolbar-menu-trigger" data-toggle="menu" aria-label="Menu"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-menu"></use></svg></a></div></header><div class="container container-main"><div class="col-content"><div class="tsd-page-title"><h1>tinyshade</h1></div><div class="tsd-panel tsd-typography"><h1 id="🌑-tinyshade" class="tsd-anchor-link">🌑 TinyShade<a href="#🌑-tinyshade" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h1><p>A minimalist, zero-boilerplate <strong>WebGPU</strong> framework designed for rapid prototyping of compute-driven visuals, simulations, and multi-pass post-process effects.</p>
+<p>TinyShade simplifies the complex WebGPU binding model into a chainable API. It handles <strong>Ping-Ponging</strong> (feedback textures), <strong>Dynamic Compute Dispatching</strong>, and <strong>Uniform Management</strong> automatically.</p>
+<hr>
+<h2 id="core-api-step-by-step" class="tsd-anchor-link">Core API: Step-by-Step<a href="#core-api-step-by-step" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><p>TinyShade allows you to chain an arbitrary number of Compute and Fragment passes ($1 \dots n$). The execution follows the order of your method calls.</p>
+<h3 id="1-initialize" class="tsd-anchor-link">1. Initialize<a href="#1-initialize" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><p>Sets up the GPU context, detects pixel density, and prepares the internal texture stack.</p>
+<pre><code class="typescript"><span class="hl-0">const</span><span class="hl-1"> </span><span class="hl-2">app</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-4">TinyShade</span><span class="hl-1">.</span><span class="hl-5">create</span><span class="hl-1">(</span><span class="hl-6">&quot;canvas-id&quot;</span><span class="hl-1">);</span>
+</code><button type="button">Copy</button></pre>
+
+<h3 id="2-global-helpers-addcommon" class="tsd-anchor-link">2. Global Helpers (addCommon)<a href="#2-global-helpers-addcommon" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><p>Register a shared library of math and utility functions. TinyShade prepends this to every shader stage in the pipeline automatically.</p>
+<pre><code class="rust">
+app.addCommon(`
+    fn rotate(p: vec2f, a: f32) -> vec2f {
+        let s = sin(a); let c = cos(a);
+        return mat2x2f(c, s, -s, c) * p;
+    }
+`);
+
+### 3. Set Uniforms
+
+Define custom data in JS. TinyShade automatically injects the **standard built-ins** into the `u` struct for every shader. You do not need to define `time` or `resolution` manually.
+
+```typescript
+app.setUniforms(l => {
+    // Standard built-ins are ALWAYS available:
+    // u.time       : f32
+    // u.resolution : vec3<f32> (x: width, y: height, z: aspect)
+    l.addUniform("speed", 0.02)
+     .addUniform("intensity", 0.5);
+});
+</code><button type="button">Copy</button></pre>
+
+<p><em>Access in WGSL via <code>u.speed</code>, <code>u.color</code>, etc.</em></p>
+<p><strong>Note:</strong> <code>u.resolution</code> is a <code>vec3f</code> where <code>.z</code> stores the aspect ratio ($width / height$), saving you a division inside the shader.</p>
+<h3 id="4-compute-engine-" class="tsd-anchor-link">4. Compute Engine (<code>addCompute</code>)<a href="#4-compute-engine-" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><p>You can add $1 \dots n$ compute passes. TinyShade automatically handles the workgroup dispatch based on your input.</p>
+<ul>
+<li>
+<p><strong>1D Simulation Mode (<code>size &gt; 0</code>):</strong> Perfect for particles or physics. Provides a <code>data</code> storage buffer.</p>
+</li>
+<li>
+<p><strong>2D Generative Mode (<code>size = 0</code>):</strong> Dispatches across the full screen grid (resolution).</p>
+</li>
+</ul>
+<pre><code class="rust">app.addCompute(1024, `
+    //##WORKGROUP_SIZE
+    fn main(@builtin(global_invocation_id) id: vec3u) {
+        // Manipulate the storage buffer (1D Mode)
+        data[id.x] = data[id.x] + u.speed;
+        
+        // Or write to the output texture (2D Mode)
+        textureStore(outTex, id.xy, vec4f(1.0));
+    }
+`);
+
+</code><button type="button">Copy</button></pre>
+
+<p><strong>Note:</strong> <code>##WORKGROUP_SIZE</code> is dynamically replaced at runtime by the most suitable compute workgroup settings for the specific device executing the code. If you prefer to use a specific manual setting like <code>@compute @workgroup_size(8, 8, 1)</code>, you can simply omit the tag and write it out.</p>
+<h3 id="5-single-multi-pass-fragment-" class="tsd-anchor-link">5. Single &amp; Multi-Pass Fragment (<code>addPass</code>)<a href="#5-single-multi-pass-fragment-" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><p>Add $1 \dots n$ fragment passes for post-processing or feedback effects. Every <code>addPass</code> creates a new <code>passN</code> texture that subsequent passes can sample.</p>
+<pre><code class="rust">// PASS 0: Edge Detection
+app.addPass(`
+    @fragment fn main(in: VSOut) -> @location(0) vec4f {
+        let tex = textureSample(computeTex, samp, in.uv).rgb;
+        return vec4f(tex * 2.0, 1.0);
+    }
+`)
+// PASS 1: Temporal Feedback (Blur/Motion)
+.addPass(`
+    @fragment fn main(in: VSOut) -> @location(0) vec4f {
+        let current = textureSample(pass0, samp, in.uv).rgb;
+        let history = textureSample(prevPass1, samp, in.uv).rgb; // History of THIS pass
+        return vec4f(mix(current, history, 0.9), 1.0);
+    }
+`);
+
+</code><button type="button">Copy</button></pre>
+
+<h3 id="6-final-compositor-" class="tsd-anchor-link">6. Final Compositor (<code>main</code>)<a href="#6-final-compositor-" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><p>The end of the chain. This pass renders directly to the canvas swapchain.</p>
+<pre><code class="rust">app.main(`
+    @fragment fn main(in: VSOut) -> @location(0) vec4f {
+        let finalColor = textureSample(pass1, samp, in.uv).rgb;
+        return vec4f(finalColor, 1.0);
+    }
+`).run();
+
+</code><button type="button">Copy</button></pre>
+
+<hr>
+<h2 id="shader-variables-reference" class="tsd-anchor-link">Shader Variables Reference<a href="#shader-variables-reference" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Type</th>
+<th>Source</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>u.&lt;name&gt;</code></td>
+<td><code>any</code></td>
+<td><code>setUniforms</code></td>
+<td>Access any custom uniform defined in JS.</td>
+</tr>
+<tr>
+<td><code>computeTex</code></td>
+<td><code>texture_2d</code></td>
+<td><code>addCompute</code></td>
+<td>The high-precision output of your compute shader.</td>
+</tr>
+<tr>
+<td><code>passN</code></td>
+<td><code>texture_2d</code></td>
+<td><code>addPass</code></td>
+<td>The output of the N-th pass (e.g., <code>pass0</code>, <code>pass1</code>).</td>
+</tr>
+<tr>
+<td><code>prevPassN</code></td>
+<td><code>texture_2d</code></td>
+<td><code>addPass</code></td>
+<td>The feedback (<strong>previous frame</strong>) of the N-th pass.</td>
+</tr>
+<tr>
+<td><code>samp</code></td>
+<td><code>sampler</code></td>
+<td>Internal</td>
+<td>A linear, filtering sampler ready to use.</td>
+</tr>
+<tr>
+<td><code>data</code></td>
+<td><code>array&lt;f32&gt;</code></td>
+<td><code>addCompute</code></td>
+<td>The storage buffer (active only if <code>size &gt; 0</code>).</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="example-1-compute-fractal-to-screen" class="tsd-anchor-link">Example 1: Compute Fractal to Screen<a href="#example-1-compute-fractal-to-screen" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><p>A common pattern is using <code>addCompute</code> for heavy calculations (like a fractal orbit trap) and then flushing it to the screen via <code>.main()</code>.</p>
+<p>View the example here <a href="https://magnusthor.github.io/TinyShade/public/example-2.html">https://magnusthor.github.io/TinyShade/public/example-2.html</a></p>
+<pre><code class="rust">    const app = await TinyShade.create("canvas");
+
+    app.setUniforms()
+    /**
+     * COMPUTE PASS: Fractal Orbit Trap
+     */
+    .addCompute(0,`
+         const AA: i32 = 3;
+        const sqrt2_inv: f32 = 0.70710678118;
+        //##WORKGROUP_SIZE
+        @compute @workgroup_size(8, 8, 1)
+        fn main(@builtin(global_invocation_id) id: vec3u) {
+           const AA: i32 = 3;
+            const sqrt2_inv: f32 = 0.70710678118;
+
+            let R = u.resolution;
+            // Guard against out-of-bounds if resolution isn't multiple of 8
+            if (f32(id.x) >= R.x || f32(id.y) >= R.y) { return; }
+
+            let fragCoord = vec2f(f32(id.x), f32(id.y));
+            var col = vec3f(0.0);
+
+            // Precompute constant values
+            let zoo = 1.0 / (350.0 - 250.0 * sin(fma(0.25, u.time, -0.3))); 
+            let t2c_base = vec2f(-0.5, 2.0) + 0.5 * vec2f(
+                cos(fma(0.13, u.time, -1.3)), 
+                sin(fma(0.13, u.time, -1.3))
+            );
+
+            // Anti-Aliasing Loop
+            for (var m: i32 = 0; m < AA; m++) {
+                for (var n: i32 = 0; n < AA; n++) {
+                    let p = (2.0 * (fragCoord + vec2f(f32(m), f32(n)) / f32(AA)) - R.xy) / R.y;
+
+                    let cc = vec2f(-0.533516, 0.526141) + p * zoo;  
+                    var z = vec2f(0.0);  
+                    var dz = vec2f(0.0);
+                    var trap1: f32 = 0.0;  
+                    var trap2: f32 = 1e20;
+                    var co2: f32 = 0.0;  
+
+                    for (var i: i32 = 0; i < 150; i++) {
+                        dz = vec2f(fma(2.0 * z.x, dz.x, -2.0 * z.y * dz.y), 
+                                   fma(2.0 * z.x, dz.y, 2.0 * z.y * dz.x)) + vec2f(1.0, 0.0);
+                        z = cc + vec2f(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y);
+
+                        let shouldBreak = dot(z, z) > 1024.0;
+                        if (shouldBreak) { break; } 
+
+                        let z_offset = z - vec2f(0.0, 1.0);
+                        let d1 = abs(dot(z_offset, vec2f(sqrt2_inv)));
+                        let ff = 1.0 - smoothstep(0.6, 1.4, d1);
+                        co2 = fma(ff, d1, co2); 
+                        trap1 = fma(ff, d1, trap1); 
+                        trap2 = min(trap2, dot(z - t2c_base, z - t2c_base)); 
+                    }
+
+                    let d = sqrt(dot(z, z) / dot(dz, dz)) * log(dot(z, z));
+                    let c1 = pow(clamp(2.0 * d / zoo, 0.0, 1.0), 0.5);
+                    let c2 = pow(clamp(1.5 * trap1 / co2, 0.0, 1.0), 2.0);
+                    let c3 = pow(clamp(0.4 * trap2, 0.0, 1.0), 0.25);
+
+                    let factor1 = 3.0 + 4.0 * c2; 
+                    let factor2 = 4.1 + 2.0 * c3;
+
+                    col += 2.0 * sqrt(c1 * (0.5 + 0.5 * sin(factor1 + vec3f(0.0, 0.5, 1.0))) * (0.5 + 0.5 * sin(factor2 + vec3f(1.0, 0.5, 0.0))));
+                }
+            }
+
+            col /= f32(AA * AA);
+            textureStore(outTex, id.xy, vec4f(col, 1.0)); 
+        }
+    `)
+    /**
+     * MAIN: Final Post-Process
+     */
+    .main(`
+        @fragment fn main(in: VSOut) -> @location(0) vec4f {
+            let uv = in.uv;
+            let fractal = textureSample(computeTex, samp, uv).rgb;
+            
+            // Add a subtle vignette and contrast
+            let vignette = smoothstep(1.5, 0.3, length(uv - 0.5));
+            let color = pow(fractal * vignette, vec3f(1.1));
+            
+            return vec4f(color, 1.0);
+        }
+    `)
+    .run();
+</code><button type="button">Copy</button></pre>
+
+<blockquote>
+<p>Credits; this Compute Shader is an WGSL implementation of this <a href="https://shadertoy.com/view/ldf3DN">shadertoy.com/view/ldf3DN</a> by  Inigo Quilez (iq)</p>
+</blockquote>
+<h2 id="example-2-cellular-warp-with-temporal-bloom" class="tsd-anchor-link">Example 2: Cellular Warp with Temporal Bloom<a href="#example-2-cellular-warp-with-temporal-bloom" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><p>Demonstrating complex generative math in a pass followed by a multi-tap bloom compositor.<br>
+View the example here <a href="https://magnusthor.github.io/TinyShade/public/example-3.html">https://magnusthor.github.io/TinyShade/public/example-3.html</a></p>
+<pre><code class="rust">
+   const app = await TinyShade.create("canvas");
+
+   app.setUniforms().addPass(`
+       fn hash22(p: vec2f) -> vec2f {
+           var p3 = fract(vec3f(p.xyx) * vec3f(0.1031, 0.1030, 0.0973));
+           p3 += dot(p3, p3.yzx + 33.33);
+           return fract((p3.xx + p3.yz) * p3.zy);
+       }
+
+       fn rotate2D(r: f32) -> mat2x2f {
+           let c = cos(r); let s = sin(r);
+           return mat2x2f(c, s, -s, c);
+       }
+
+       @fragment 
+       fn main(in: VSOut) -> @location(0) vec4f {
+           let res = u.resolution.xy;
+           let uv = (in.pos.xy - 0.5 * res) / res.y;
+
+           var p = uv;
+           var n = vec2f(0.0);
+           var warp_accum = 0.0;
+           let m = rotate2D(5.0);
+           
+           for (var j: f32 = 0.0; j < 6.0; j += 1.0) {
+               p = m * p;
+               n = m * n;
+               let q = p * 1.5 + u.time * 0.5 + n;
+               warp_accum += dot(cos(q), vec2f(0.2));
+               n -= sin(q);
+           }
+
+           let cell_uv = uv * 8.0 + n; 
+           let i_p = floor(cell_uv);
+           let f_p = fract(cell_uv);
+           
+           var min_dist: f32 = 1.0;
+           for (var y: f32 = -1.0; y <= 1.0; y += 1.0) {
+               for (var x: f32 = -1.0; x <= 1.0; x += 1.0) {
+                   let neighbor = vec2f(x, y);
+                   var point = hash22(i_p + neighbor);
+                   point = 0.5 + 0.5 * sin(u.time + 6.28 * point);
+                   let dist = length(neighbor + point - f_p);
+                   min_dist = min(min_dist, dist);
+               }
+           }
+
+           let history = textureSampleLevel(prevPass0, samp, in.uv, 0.0).rgb;
+           let membrane = smoothstep(0.4, 0.1, min_dist);
+           let glow_val = (1.0 - min_dist) * warp_accum;
+           
+           var current_rgb = mix(vec3f(0.3, 0.01, 0.03), vec3f(1.0, 0.7, 0.6), membrane);
+           current_rgb += glow_val * vec3f(1.0, 0.3, 0.1);
+
+           return vec4f(mix(current_rgb, history, 0.85), 1.0); // Temporal Smooth
+       }
+   `)
+   .main(`
+       @fragment 
+       fn main(in: VSOut) -> @location(0) vec4f {
+           let uv = in.uv;
+           let scene = textureSample(pass0, samp, uv).rgb;
+
+           // Multi-tap Bloom (Cheap Gaussian Blur)
+           let b_radius = 0.005;
+           var bloom = textureSample(pass0, samp, uv + vec2f(b_radius)).rgb;
+           bloom += textureSample(pass0, samp, uv - vec2f(b_radius)).rgb;
+           bloom *= 0.5;
+
+           let glow = max(bloom - 0.2, vec3f(0.0)) * 2.5;
+           let vignette = smoothstep(1.2, 0.3, length(uv - 0.5));
+           return vec4f((scene + glow) * vignette, 1.0);
+       }
+   `)
+   .run();
+</code><button type="button">Copy</button></pre>
+
+<h2 id="⚡-technical-highlights" class="tsd-anchor-link">⚡ Technical Highlights<a href="#⚡-technical-highlights" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><ul>
+<li>
+<p><strong>Automatic Vertexing</strong>: Injects an optimized zero-input full-screen triangle.</p>
+</li>
+<li>
+<p><strong>Binding Safety</strong>: Layout-first approach prevents &quot;Binding index mismatch&quot; crashes.</p>
+</li>
+<li>
+<p><strong>Smart Dispatch</strong>: Automatically calculates optimal grid dispatch based on <code>u.resolution</code>.</p>
+</li>
+</ul>
+</div></div><div class="col-sidebar"><div class="page-menu"><div class="tsd-navigation settings"><details class="tsd-accordion"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg><h3>Settings</h3></summary><div class="tsd-accordion-details"><div class="tsd-filter-visibility"><span class="settings-label">Member Visibility</span><ul id="tsd-filter-options"><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-protected" name="protected"/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>Protected</span></label></li><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-inherited" name="inherited" checked/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>Inherited</span></label></li><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-external" name="external"/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>External</span></label></li></ul></div><div class="tsd-theme-toggle"><label class="settings-label" for="tsd-theme">Theme</label><select id="tsd-theme"><option value="os">OS</option><option value="light">Light</option><option value="dark">Dark</option></select></div></div></details></div><details open class="tsd-accordion tsd-page-navigation"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg><h3>On This Page</h3></summary><div class="tsd-accordion-details"><a href="#🌑-tinyshade"><span>🌑 <wbr/>Tiny<wbr/>Shade</span></a><ul><li><a href="#core-api-step-by-step"><span>Core <wbr/>API: <wbr/>Step-<wbr/>by-<wbr/>Step</span></a></li><li><ul><li><a href="#1-initialize"><span>1. <wbr/>Initialize</span></a></li><li><a href="#2-global-helpers-addcommon"><span>2. <wbr/>Global <wbr/>Helpers (add<wbr/>Common)</span></a></li><li><a href="#4-compute-engine-"><span>4. <wbr/>Compute <wbr/>Engine ()</span></a></li><li><a href="#5-single-multi-pass-fragment-"><span>5. <wbr/>Single &amp; <wbr/>Multi-<wbr/>Pass <wbr/>Fragment ()</span></a></li><li><a href="#6-final-compositor-"><span>6. <wbr/>Final <wbr/>Compositor ()</span></a></li></ul></li><li><a href="#shader-variables-reference"><span>Shader <wbr/>Variables <wbr/>Reference</span></a></li><li><a href="#example-1-compute-fractal-to-screen"><span>Example 1: <wbr/>Compute <wbr/>Fractal to <wbr/>Screen</span></a></li><li><a href="#example-2-cellular-warp-with-temporal-bloom"><span>Example 2: <wbr/>Cellular <wbr/>Warp with <wbr/>Temporal <wbr/>Bloom</span></a></li><li><a href="#⚡-technical-highlights"><span>⚡ <wbr/>Technical <wbr/>Highlights</span></a></li></ul></div></details></div><div class="site-menu"><nav class="tsd-navigation"><a href="modules.html">tinyshade</a><ul class="tsd-small-nested-navigation" id="tsd-nav-container"><li>Loading...</li></ul></nav></div></div></div><footer><p class="tsd-generator">Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></footer><div class="overlay"></div></body></html>

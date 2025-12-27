@@ -15,11 +15,24 @@ TinyShade allows you to chain an arbitrary number of Compute and Fragment passes
 Sets up the GPU context, detects pixel density, and prepares the internal texture stack.
 
 
-```TypeScript
+```typescript
 const app = await TinyShade.create("canvas-id");
 ```
 
-### 2. Set Uniforms
+
+### 2. Global Helpers (addCommon)
+Register a shared library of math and utility functions. TinyShade prepends this to every shader stage in the pipeline automatically.
+
+```rust
+
+app.addCommon(`
+    fn rotate(p: vec2f, a: f32) -> vec2f {
+        let s = sin(a); let c = cos(a);
+        return mat2x2f(c, s, -s, c) * p;
+    }
+`);
+
+### 3. Set Uniforms
 
 Define custom data in JS. TinyShade automatically injects the **standard built-ins** into the `u` struct for every shader. You do not need to define `time` or `resolution` manually.
 
@@ -38,7 +51,7 @@ _Access in WGSL via `u.speed`, `u.color`, etc._
 **Note:** `u.resolution` is a `vec3f` where `.z` stores the aspect ratio ($width / height$), saving you a division inside the shader.
 
 
-### 3. Compute Engine (`addCompute`)
+### 4. Compute Engine (`addCompute`)
 
 You can add $1 \dots n$ compute passes. TinyShade automatically handles the workgroup dispatch based on your input.
 
@@ -62,7 +75,7 @@ app.addCompute(1024, `
 ```
 **Note:** `##WORKGROUP_SIZE` is dynamically replaced at runtime by the most suitable compute workgroup settings for the specific device executing the code. If you prefer to use a specific manual setting like `@compute @workgroup_size(8, 8, 1)`, you can simply omit the tag and write it out.
 
-### 4. Single & Multi-Pass Fragment (`addPass`)
+### 5. Single & Multi-Pass Fragment (`addPass`)
 
 Add $1 \dots n$ fragment passes for post-processing or feedback effects. Every `addPass` creates a new `passN` texture that subsequent passes can sample.
 
@@ -85,7 +98,7 @@ app.addPass(\`
 
 ```
 
-### 5. Final Compositor (`main`)
+### 6. Final Compositor (`main`)
 
 The end of the chain. This pass renders directly to the canvas swapchain.
 
@@ -213,7 +226,7 @@ View the example here [https://magnusthor.github.io/TinyShade/public/example-2.h
     .run();
 ```
 
-> Credits; this Compute Shader is an WGSL implementation of this [shadertoy.com/view/ldf3DN](shadertoy.com/view/ldf3DN) by  Inigo Quilez (iq)
+> Credits; this Compute Shader is an WGSL implementation of this [shadertoy.com/view/ldf3DN](https://shadertoy.com/view/ldf3DN) by  Inigo Quilez (iq)
 
 
 ##  Example 2: Cellular Warp with Temporal Bloom

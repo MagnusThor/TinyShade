@@ -1,15 +1,23 @@
 {
-  "name": "petit-wgsl-renderer",
+  "name": "tinyshade",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "A WebGPU shading utility",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "files": [
+    "build"
+  ],
   "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "@webgpu/types": "^0.1.68",
+    "typedoc": "^0.28.15",
+    "typescript": "^5.0.0",
     "webpack": "^5.104.1"
   }
 }

@@ -7,8 +7,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const STORAGE_SIZE = COUNT * 4; 
 
     app.setUniforms(l => {
-        l.addUniform("count", COUNT)
-         .addUniform("random", () => Math.random());
+        l.addUniform({ name: "count", value: COUNT })
+   
     })
     /**
      * COMPUTE PASS: Preserved precisely.

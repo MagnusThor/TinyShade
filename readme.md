@@ -65,6 +65,8 @@ start();
 
 TinyShade allows you to chain an arbitrary number of Compute and Fragment passes ($1 \dots n$). The execution follows the order of your method calls.
 
+Full API documentation APIcan be found here [https://magnusthor.github.io/TinyShade/public/doc/](https://magnusthor.github.io/TinyShade/public/doc/)
+
 ### 1. Initialize
 
 Sets up the GPU context, detects pixel density, and prepares the internal texture stack.

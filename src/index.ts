@@ -1,3 +1,5 @@
-export {TinyShade,Buffer,PassInterceptors,PassResponse} from "./TinyShade"
+export {TinyShade} from "./TinyShade"
+export {IAudioPlugin} from "./plugins/IAudioPlugin"
+export {GPUSynth,SWEET_DREAMS_WGSL} from "./plugins/GPUSynth"
 export {UniformFunction,UniformValue,UniformLayout,UniformEntry} from "./UniformLayout"
-export {WebGPUTiming,RollingAverage} from "./WebGPUTiming"
+export {WebGPUTiming,RollingAverage} from "./plugins/WebGPUTiming"

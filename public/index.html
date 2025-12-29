@@ -4,21 +4,24 @@
 <head>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
-    <title>My Examples</title>
+    <title>TinyShade Examples</title>
 </head>
 
 <body class="bg-black bg-gradient text-white">
     <main class="vh-100 vw-100 overflow-auto position-relative p-4">
         <div class="container">
             <h1 class="mb-4 text-center">TinyShade examples</h1>
-            <p class="text-center mb-5">Explore the examples below. Each link opens a different HTML file demonstrating unique content or layout.</p>
+            <p class="text-center mb-5">
+Explore a curated collection of real-time GPU experiments built with TinyShade. Each example opens a standalone HTML file showcasing a specific rendering technique, algorithm, or engine feature—from procedural noise and fractals to raymarching, path tracing, and audio-visual synthesis.
+            </p>
 
             <div class="row g-4">
                 <div class="col-md-6 col-lg-4">
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 1</h5>
-                            <p class="card-text d-none">This is a brief description of Example 1. It demonstrates basic layout and styling techniques.</p>
+                            <p class="card-text">
+                                This example demonstrates Domain Warping combined with Voronoi (Cellular) Noise to create a visceral, organic "Bio-Organic Membrane" effect. It showcases how simple mathematical functions can be layered to simulate complex, natural textures.</p>
                             <a href="example-1.html" class="btn btn-primary">Open Example 1</a>
                         </div>
                     </div>
@@ -28,7 +31,9 @@
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 2</h5>
-                            <p class="card-text d-none">This example highlights advanced HTML elements and Bootstrap components.</p>
+                            <p class="card-text">
+                               This example showcases a Fractal Orbit Trap rendered with high-precision Anti-Aliasing and Distance Estimation. While standard fractals like the Mandelbrot set typically use "escape time" (counting how long it takes to fly to infinity), this shader uses the path of the points (the "orbit") to create intricate, textured coloring.
+                            </p>
                             <a href="example-2.html" class="btn btn-primary">Open Example 2</a>
                         </div>
                     </div>
@@ -38,7 +43,9 @@
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 3</h5>
-                            <p class="card-text d-none">Example 3 focuses on responsive design and mobile-friendly layouts.</p>
+                            <p class="card-text">
+                                This example builds upon the organic membrane simulation by introducing Temporal Accumulation and a Post-Process Bloom Pass. It demonstrates how to transform sharp, mathematical noise into a soft, cinematic "bioluminescent" environment by leveraging the history of previous frames and simulated lens optics.
+                            </p>
                             <a href="example-3.html" class="btn btn-primary">Open Example 3</a>
                         </div>
                     </div>
@@ -48,7 +55,9 @@
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 4</h5>
-                            <p class="card-text d-none">This example demonstrates animations, hover effects, and interactive components.</p>
+                            <p class="card-text">
+                                Still working in this
+                                .</p>
                             <a href="example-4.html" class="btn btn-primary">Open Example 4</a>
                         </div>
                     </div>
@@ -58,7 +67,9 @@
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 5</h5>
-                            <p class="card-text d-none">Example 5 introduces forms, inputs, and user interactions with validations.</p>
+                            <p class="card-text">
+                                This system achieves a "Warp Drive" aesthetic by syncing a 1-million particle compute simulation with fractal geometry. Since both passes share the same Signed Distance Function (SDF), particles "sense" the fractal; they calculate their distance to the Mandelbox and reset upon impact, preventing clipping and creating a realistic collision effect.
+                            </p>
                             <a href="example-5.html" class="btn btn-primary">Open Example 5</a>
                         </div>
                     </div>
@@ -68,11 +79,42 @@
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 6</h5>
-                            <p class="card-text d-none">The final example combines multiple concepts into a mini project showcase.</p>
+                            <p class="card-text">
+                               This example bridges high-performance visuals with traditional web elements by loading a static photo and a dynamic 2D canvas as GPU textures. The shader generates a procedural plasma background, mixes it with the image, and then alpha-composites the "TINYSHADE" text layer on top.
+
+                            </p>
                             <a href="example-6.html" class="btn btn-primary">Open Example 6</a>
                         </div>
                     </div>
                 </div>
+
+                
+                <div class="col-md-6 col-lg-4">
+                    <div class="card bg-dark text-white h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">Example 7</h5>
+                            <p class="card-text">
+                                This project implements a high-end audio-visual raymarcher that synchronizes GPU-synthesized sound with a physically-based 3D scene. It utilizes a singular sun source to drive soft shadows, Fresnel reflections, and atmospheric fog, all polished via a cinematic post-processing stac
+                            </p>
+                            <a href="example-7.html" class="btn btn-primary">Open Example 7</a>
+                        </div>
+                    </div>
+                </div>
+
+                  <div class="col-md-6 col-lg-4">
+                    <div class="card bg-dark text-white h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">Example</h5>
+                            <p class="card-text">
+                                This path tracer is a WebGPU-optimized adaptation of the brilliant work by Mårten Rånge, specifically inspired by his "Festive Path Tracer." It translates his sophisticated GLSL Monte Carlo logic into a high-performance, branchless WebGPU compute architecture.
+                            </p>
+                            <a href="example-8.html" class="btn btn-primary">Open Example 8</a>
+                        </div>
+                    </div>
+                </div>
+              
+                
+
             </div>
         </div>
     </main>

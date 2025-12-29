@@ -1,100 +1,98 @@
+import { IAudioPlugin } from "./plugins/IAudioPlugin";
+import { WebGPUTiming } from "./plugins/WebGPUTiming";
 import { UniformLayout } from "./UniformLayout";
 
-/**
- * Utility object for buffer operations.
- */
-export const Buffer = {
-    /**
-     * Writes data to a GPU buffer.
-     * @param device - The GPU device.
-     * @param buffer - The target GPU buffer.
-     * @param data - The data to write.
-     * @param offset - The offset in the buffer to start writing at.
-     * @returns The buffer that was written to.
-     */
-    write(
-        device: GPUDevice,
-        buffer: GPUBuffer,
-        data: ArrayBufferView,
-        offset = 0
-    ): GPUBuffer {
-        device.queue.writeBuffer(
-            buffer,
-            offset,
-            data.buffer,
-            data.byteOffset,
-            data.byteLength
-        );
+
+ const Buffer = {
+    write(device: GPUDevice, buffer: GPUBuffer, data: ArrayBufferView, offset = 0): GPUBuffer {
+        device.queue.writeBuffer(buffer, offset, data.buffer, data.byteOffset, data.byteLength);
         return buffer;
     }
 };
 
-/**
- * Response object for pass interceptors.
- */
-export interface PassResponse {
-    /** Optional render pass descriptor overrides. */
-    descriptor?: Partial<GPURenderPassDescriptor>;
-    /** Optional uniforms data. */
-    uniforms?: Float32Array | number[];
+const largestPowerOf2LessThan = (n: number): number => {
+    let power = 1;
+    while (power * 2 <= n) power *= 2;
+    return power;
+};
+
+const getWorkgroupSize = (limits: GPUSupportedLimits) => {
+    const x = Math.min(16, largestPowerOf2LessThan(limits.maxComputeWorkgroupSizeX));
+    const y = Math.min(16, largestPowerOf2LessThan(limits.maxComputeWorkgroupSizeY));
+    return { x, y, z: 1, str: `@workgroup_size(${x}, ${y}, 1)` };
+};
+
+
+
+export interface IPass {
+    name: string;
+    type: 'compute' | 'fragment';
+    shader: string;
+    textures: GPUTexture[];
+    pipelines: (GPURenderPipeline | GPUComputePipeline)[];
+    storageBuffer?: GPUBuffer;
+    isMain?: boolean;
 }
 
 /**
- * Interceptors for pass execution.
- */
-export interface PassInterceptors {
-    /** Called before the pass executes. */
-    onBefore?: (uniforms: UniformLayout) => PassResponse | void;
-    /** Called after the pass executes. */
-    onAfter?: (result: { frame: number; timeMS: number }) => void;
-}
-
-/**
- * TinyShade - A WebGPU-based shader rendering engine for canvas graphics.
- * Handles compute pipelines, multi-pass rendering, and global texture assets.
+ * TinyShade - A WebGPU-based shader rendering framework
+ * 
+ * A flexible shader renderer that supports multiple render passes, compute shaders,
+ * textures, and audio synchronization. Provides a fluent API for composing complex
+ * GPU pipelines with automatic uniform management and bind group generation.
+ * 
+ * @example
+ * ```typescript
+ * const shade = await TinyShade.create('canvas-id');
+ * 
+ * shade
+ *   .addTexture('myTexture', 'path/to/image.png')
+ *   .setUniforms((layout) => layout.setUniform('myUniform', 1.0))
+ *   .addCommon('fn myHelper() { ... }')
+ *   .addCompute('computePass', 'compute shader code')
+ *   .addPass('renderPass', 'fragment shader code')
+ *   .main('main fragment shader')
+ *   .run();
+ * ```
+ * 
+ * @class TinyShade
+ * @property {GPUDevice} device - The WebGPU device instance
+ * @property {number} frameCounter - Current frame number
  */
 export class TinyShade {
-    private device!: GPUDevice;
+    public device!: GPUDevice;
     private context!: GPUCanvasContext;
     private canvas: HTMLCanvasElement;
     private uniforms: UniformLayout;
     private uniformBuffer!: GPUBuffer;
+    private audioPlugin?: IAudioPlugin;
     private startTime = 0;
     public frameCounter = 0;
-    private workgroupLimits!: { str: string };
 
-    /** Global common WGSL library code. */
-    private commonWGSL: string = "";
-
-    /** Map of texture names to their GPUTexture instances. */
     private globalTextures: Map<string, GPUTexture> = new Map();
-
-    private computePipeline: GPUComputePipeline | null = null;
-    private computeBindGroup: GPUBindGroup | null = null;
-    private storageBuffer: GPUBuffer | null = null;
-    private storageTexture!: GPUTexture;
-
-    private passes: {
-        shader: string;
-        textures: GPUTexture[];
-        pipelines: GPURenderPipeline[];
-        bindGroups: GPUBindGroup[];
-        interceptors?: PassInterceptors;
-    }[] = [];
+    private commonWGSL: string = "";
+    private passes: IPass[] = [];
+    private passLayouts: GPUBindGroupLayout[] = [];
 
     private mainPassShader: string = "";
     private mainPipeline!: GPURenderPipeline;
-    private mainBindGroupLayout!: GPUBindGroupLayout;
-    private mainInterceptors?: PassInterceptors;
+    private isCompiled = false;
+    private startedAudio = false;
+
+    private workgroupSize = { x: 8, y: 8, z: 1, str: "@workgroup_size(8, 8, 1)" };
 
     private constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
         this.uniforms = new UniformLayout([this.canvas.width, this.canvas.height, window.devicePixelRatio]);
     }
 
+   
     /**
-     * Creates a new TinyShade instance.
-     * @param canvasId - The ID of the canvas element.
+     * Creates and initializes a new TinyShade instance with WebGPU support.
+     * @param canvasId - The HTML element ID of the canvas to bind to the renderer
+     * @returns A promise that resolves to an initialized TinyShade instance
+     * @throws If the canvas element with the specified ID is not found
+     * @throws If WebGPU initialization fails
      */
     static async create(canvasId: string): Promise<TinyShade> {
         const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
@@ -104,29 +102,55 @@ export class TinyShade {
     }
 
     private async initWebGPU() {
-        const adapter = await navigator.gpu.requestAdapter();
-        const hasTimestamp = adapter?.features.has("timestamp-query");
-        this.device = await adapter!.requestDevice({
-            requiredFeatures: hasTimestamp ? ["timestamp-query"] as GPUFeatureName[] : []
-        });
+        const adapter = await navigator.gpu?.requestAdapter();
+        if (!adapter) throw "WebGPU not supported";
 
-        this.workgroupLimits = { str: `@workgroup_size(8, 8, 1)` };
+        const features: GPUFeatureName[] = [];
+        if (adapter.features.has('bgra8unorm-storage')) features.push('bgra8unorm-storage');
+        if (adapter.features.has('timestamp-query')) features.push('timestamp-query');
+
+        this.device = await adapter.requestDevice({ requiredFeatures: features });
+
+        this.workgroupSize = getWorkgroupSize(adapter.limits);
+
         this.context = this.canvas.getContext("webgpu")!;
-        this.context.configure({ device: this.device, format: navigator.gpu.getPreferredCanvasFormat() });
-
-        this.storageTexture = this.device.createTexture({
-            size: [this.canvas.width, this.canvas.height],
-            format: "rgba8unorm",
-            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
+        this.context.configure({
+            device: this.device,
+            format: navigator.gpu.getPreferredCanvasFormat(),
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
         });
 
         this.startTime = performance.now();
     }
 
+
     /**
-     * Adds a global texture asset from a URL or Element.
-     * @param name - The variable name to use in WGSL (e.g., 'myTex').
-     * @param src - URL string, Image, or Canvas element.
+     * Adds an audio plugin to the shader instance.
+     * @param plugin - The audio plugin to be added.
+     * @returns The current instance for method chaining.
+     */
+    addAudio(plugin: IAudioPlugin): this {
+        this.audioPlugin = plugin;
+        console.log(this.audioPlugin);
+        return this;
+    }
+
+    /**
+     * Adds common WGSL code to the shader.
+     * @param wgsl - The WGSL code string to add to the common section.
+     * @returns The current instance for method chaining.
+     */
+    addCommon(wgsl: string): this {
+        this.commonWGSL += `\n${wgsl}\n`;
+        return this;
+    }
+
+    /**
+     * Adds a texture to the shader with the specified name.
+     * @param name - The name to associate with the texture
+     * @param src - The texture source, either a URL string, HTMLImageElement, or HTMLCanvasElement
+     * @returns A promise that resolves to this instance for method chaining
+     * @throws Will throw if the image fails to load or decode
      */
     async addTexture(name: string, src: string | HTMLImageElement | HTMLCanvasElement): Promise<this> {
         let source: ImageBitmap | HTMLCanvasElement | HTMLImageElement;
@@ -135,29 +159,23 @@ export class TinyShade {
             img.src = src;
             await img.decode();
             source = await createImageBitmap(img);
-        } else {
-            source = src;
-        }
+        } else { source = src; }
 
         const texture = this.device.createTexture({
             size: [source.width, source.height],
             format: 'rgba8unorm',
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
         });
-
         this.device.queue.copyExternalImageToTexture({ source }, { texture }, [source.width, source.height]);
         this.globalTextures.set(name, texture);
         return this;
     }
 
     /**
-     * Adds common WGSL logic shared across all stages.
+     * Sets up the uniform buffer and optionally applies a callback to the uniform layout.
+     * @param callback - Optional callback function that receives the uniform layout for configuration.
+     * @returns The current instance for method chaining.
      */
-    addCommon(wgsl: string): this {
-        this.commonWGSL += `\n${wgsl}\n`;
-        return this;
-    }
-
     setUniforms(callback?: (layout: UniformLayout) => void): this {
         if (callback) callback(this.uniforms);
         this.uniformBuffer = this.device.createBuffer({
@@ -168,211 +186,295 @@ export class TinyShade {
     }
 
     /**
-     * Internal helper to generate WGSL header for all textures and common code.
+     * Adds a compute shader pass to the rendering pipeline.
+     * @param name - The name identifier for this compute pass.
+     * @param wgsl - The WGSL shader code to execute.
+     * @param size - Optional size of the storage buffer in units (default: 0). If greater than 0, a storage buffer of size * 4 bytes will be created.
+     * @returns The current instance for method chaining.
      */
-    private getHeader(startBinding: number): { wgsl: string, nextBinding: number } {
-        let wgsl = "";
-        let b = startBinding;
-        this.globalTextures.forEach((_, name) => {
-            wgsl += `@group(0) @binding(${b++}) var ${name}: texture_2d<f32>;\n`;
+    addCompute(name: string, wgsl: string, size: number = 0): this {
+        const tex = this.device.createTexture({
+            size: [this.canvas.width, this.canvas.height],
+            format: "rgba8unorm",
+            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
         });
-        return { wgsl: wgsl + this.commonWGSL, nextBinding: b };
-    }
-
-    addCompute(size: number, wgsl: string): this {
-        if (size > 0) {
-            this.storageBuffer = this.device.createBuffer({ size: size * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-        }
-        const dataBinding = size > 0 ? `@group(0) @binding(1) var<storage, read_write> data: array<f32>;` : "";
-        const header = this.getHeader(3);
-
-        const code = `
-            ${this.uniforms.wgslStruct}
-            @group(0) @binding(0) var<uniform> u: Uniforms;
-            ${dataBinding}
-            @group(0) @binding(2) var outTex: texture_storage_2d<rgba8unorm, write>;
-            ${header.wgsl}
-            ${wgsl.replace("##WORKGROUP_SIZE", `@compute ${this.workgroupLimits.str}`)}
-        `;
-
-        const mod = this.device.createShaderModule({ code });
-        this.computePipeline = this.device.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint: 'main' } });
-        
-        const entries: GPUBindGroupEntry[] = [
-            { binding: 0, resource: { buffer: this.uniformBuffer } },
-            { binding: 2, resource: this.storageTexture.createView() }
-        ];
-        if (size > 0 && this.storageBuffer) entries.push({ binding: 1, resource: { buffer: this.storageBuffer } });
-        
-        let b = 3;
-        this.globalTextures.forEach(tex => entries.push({ binding: b++, resource: tex.createView() }));
-
-        this.computeBindGroup = this.device.createBindGroup({ layout: this.computePipeline.getBindGroupLayout(0), entries });
+        let buf;
+        if (size > 0) buf = this.device.createBuffer({ size: size * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+        this.passes.push({ name: name, type: 'compute', shader: wgsl, textures: [tex], storageBuffer: buf, pipelines: [] });
         return this;
     }
 
-    addPass(wgsl: string, interceptors?: PassInterceptors): this {
+    /**
+     * Adds a render pass to the shader pipeline.
+     * @param name - The name identifier for the pass
+     * @param wgsl - The WGSL shader code for the fragment stage
+     * @returns The current instance for method chaining
+     */
+    addPass(name: string, wgsl: string): this {
         const createTex = () => this.device.createTexture({
             size: [this.canvas.width, this.canvas.height],
             format: "bgra8unorm",
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
         });
-        this.passes.push({ shader: wgsl, textures: [createTex(), createTex()], pipelines: [], bindGroups: [], interceptors });
+        this.passes.push({ name: name, type: 'fragment', shader: wgsl, textures: [createTex(), createTex()], pipelines: [] });
         return this;
     }
 
     /**
-     * Sets main shader and triggers compilation.
+     * Sets the main pass shader and compiles it.
+     * @param wgsl - The WGSL shader code to set as the main pass shader.
+     * @returns A promise that resolves to this instance for method chaining.
      */
-    async main(wgsl: string, interceptors?: PassInterceptors): Promise<this> {
+    async main(wgsl: string): Promise<this> {
         this.mainPassShader = wgsl;
-        this.mainInterceptors = interceptors;
         this.compile();
         return this;
     }
 
+
     private compile() {
-        const vert = `struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
-        @vertex fn vs(@builtin(vertex_index) i: u32) -> VSOut {
-            var p = array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
-            return VSOut(vec4f(p[i],0,1), p[i]*0.5+0.5);
-        }`;
-        const sampler = this.device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+        if (!this.uniformBuffer) this.setUniforms();
 
-        [...this.passes, { shader: this.mainPassShader, isMain: true }].forEach((p: any, i) => {
-            const isMain = p.isMain;
-            const numPasses = isMain ? this.passes.length : i + 1;
-            let bindings = `${this.uniforms.wgslStruct}\n@group(0) @binding(0) var<uniform> u: Uniforms;\n@group(0) @binding(1) var samp: sampler;\n`;
-            
-            for (let j = 0; j < numPasses; j++) {
-                bindings += `@group(0) @binding(${2 + j * 2}) var pass${j}: texture_2d<f32>;\n@group(0) @binding(${2 + j * 2 + 1}) var prevPass${j}: texture_2d<f32>;\n`;
+        const vertCode = /*wgsl*/`
+            struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+            @vertex fn vs(@builtin(vertex_index) i: u32) -> VSOut {
+                var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+                return VSOut(vec4f(p[i], 0.0, 1.0), vec2f(p[i].x * 0.5 + 0.5, 0.5 - p[i].y * 0.5));
             }
-            const computeBindPos = 2 + this.passes.length * 2;
-            bindings += `@group(0) @binding(${computeBindPos}) var computeTex: texture_2d<f32>;\n`;
+        `;
 
-            const header = this.getHeader(computeBindPos + 1);
-            const code = `${vert}${bindings}${header.wgsl}${p.shader}`;
-            const mod = this.device.createShaderModule({ code });
+        const allStages = [...this.passes, { name: "main", type: 'fragment', shader: this.mainPassShader, isMain: true, textures: [], pipelines: [] } as IPass];
 
-            const layoutEntries: GPUBindGroupLayoutEntry[] = [
-                { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-                { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } }
-            ];
-            for (let j = 0; j < numPasses; j++) {
-                layoutEntries.push(
-                    { binding: 2 + j * 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-                    { binding: 2 + j * 2 + 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }
-                );
-            }
-            layoutEntries.push({ binding: computeBindPos, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } });
-            
-            let b = computeBindPos + 1;
-            this.globalTextures.forEach(() => {
-                layoutEntries.push({ binding: b++, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } });
+        allStages.forEach((currentPass, stageIdx) => {
+            let b = 1;
+            const layoutEntries: GPUBindGroupLayoutEntry[] = [{
+                binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, buffer: { type: 'uniform' }
+            }];
+
+            let header = `${this.uniforms.wgslStruct}\n@group(0) @binding(0) var<uniform> u: Uniforms;\n`;
+
+            this.globalTextures.forEach((_, name) => {
+                header += `@group(0) @binding(${b}) var ${name}: texture_2d<f32>;\n`;
+                layoutEntries.push({ binding: b++, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: {} });
+            });
+
+            header += `@group(0) @binding(${b}) var samp: sampler;\n`;
+            layoutEntries.push({ binding: b++, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, sampler: {} });
+
+            this.passes.forEach((p, i) => {
+                if (p.type === 'compute') {
+                    if (currentPass === p) {
+                        header += `@group(0) @binding(${b}) var outTex: texture_storage_2d<rgba8unorm, write>;\n`;
+                        layoutEntries.push({ binding: b++, visibility: GPUShaderStage.COMPUTE, storageTexture: { format: 'rgba8unorm', access: 'write-only' } });
+                        if (p.storageBuffer) {
+                            header += `@group(0) @binding(${b}) var<storage, read_write> data: array<f32>;\n`;
+                            layoutEntries.push({ binding: b++, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } });
+                        }
+                    } else {
+                        header += `@group(0) @binding(${b}) var ${p.name}: texture_2d<f32>;\n`;
+                        layoutEntries.push({ binding: b++, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: {} });
+                    }
+                } else {
+                    header += `@group(0) @binding(${b}) var ${p.name}: texture_2d<f32>;\n`;
+                    layoutEntries.push({ binding: b++, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: {} });
+                    header += `@group(0) @binding(${b}) var prev_${p.name}: texture_2d<f32>;\n`;
+                    layoutEntries.push({ binding: b++, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: {} });
+                }
             });
 
             const layout = this.device.createBindGroupLayout({ entries: layoutEntries });
-            const pipe = this.device.createRenderPipeline({
-                layout: this.device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-                vertex: { module: mod, entryPoint: 'vs' },
-                fragment: { module: mod, entryPoint: 'main', targets: [{ format: isMain ? navigator.gpu.getPreferredCanvasFormat() : "bgra8unorm" }] }
-            });
+            this.passLayouts[stageIdx] = layout;
 
-            const createBG = (writeIdx: number) => {
-                const readIdx = 1 - writeIdx;
-                const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: { buffer: this.uniformBuffer } }, { binding: 1, resource: sampler }];
-                for (let j = 0; j < numPasses; j++) {
-                    entries.push(
-                        { binding: 2 + j * 2, resource: this.passes[j].textures[readIdx].createView() },
-                        { binding: 2 + j * 2 + 1, resource: this.passes[j].textures[readIdx].createView() }
-                    );
-                }
-                entries.push({ binding: computeBindPos, resource: this.storageTexture.createView() });
-                let gb = computeBindPos + 1;
-                this.globalTextures.forEach(tex => entries.push({ binding: gb++, resource: tex.createView() }));
-                return this.device.createBindGroup({ layout, entries });
-            };
+            const code = (currentPass.type === 'fragment' ? vertCode : "") +  
+                header +
+                this.commonWGSL +
+                currentPass.shader.replace("##WORKGROUP_SIZE", `@compute ${this.workgroupSize.str}`);
 
-            if (isMain) { this.mainPipeline = pipe; this.mainBindGroupLayout = layout; } 
-            else { p.pipelines = [pipe, pipe]; p.bindGroups = [createBG(0), createBG(1)]; }
+            const mod = this.device.createShaderModule({ code });
+
+            const pipeLayout = this.device.createPipelineLayout({ bindGroupLayouts: [layout] });
+
+            if (currentPass.type === 'compute') {
+                currentPass.pipelines[0] = this.device.createComputePipeline({ layout: pipeLayout, compute: { module: mod, entryPoint: 'main' } });
+            } else {
+                currentPass.pipelines[0] = this.device.createRenderPipeline({
+                    layout: pipeLayout,
+                    vertex: { module: mod, entryPoint: 'vs' },
+                    fragment: { module: mod, entryPoint: 'main', targets: [{ format: currentPass.isMain ? navigator.gpu.getPreferredCanvasFormat() : "bgra8unorm" }] }
+                });
+                if (currentPass.isMain) this.mainPipeline = currentPass.pipelines[0] as GPURenderPipeline;
+            }
         });
+        this.isCompiled = true;
     }
 
-    run(gpuTimer?: any): this{
-        const sampler = this.device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
-        const frame = (now: number) => {
-            this.frameCounter++;
-            const writeIdx = this.frameCounter % 2;
-            const readIdx = 1 - writeIdx;
 
-            this.uniforms.update((now - this.startTime) / 1000);
+    private createBindGroup(stageIdx: number, writeIdx: number): GPUBindGroup {
+        const readIdx = 1 - writeIdx;
+        const currentPass = stageIdx < this.passes.length ? this.passes[stageIdx] : null;
+        const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: { buffer: this.uniformBuffer } }];
+        let b = 1;
+
+        this.globalTextures.forEach(tex => entries.push({ binding: b++, resource: tex.createView() }));
+        entries.push({ binding: b++, resource: this.device.createSampler({ magFilter: 'linear', minFilter: 'linear' }) });
+
+        this.passes.forEach((p, i) => {
+            if (p.type === 'compute') {
+                entries.push({ binding: b++, resource: p.textures[0].createView() });
+                if (p.storageBuffer && currentPass === p) {
+                    entries.push({ binding: b++, resource: { buffer: p.storageBuffer } });
+                }
+            } else {
+                if (i === stageIdx) {
+                    entries.push({ binding: b++, resource: p.textures[readIdx].createView() });
+                    entries.push({ binding: b++, resource: p.textures[readIdx].createView() });
+                } else if (i < stageIdx) {
+                    entries.push({ binding: b++, resource: p.textures[writeIdx].createView() });
+                    entries.push({ binding: b++, resource: p.textures[readIdx].createView() });
+                } else {
+                    entries.push({ binding: b++, resource: p.textures[readIdx].createView() });
+                    entries.push({ binding: b++, resource: p.textures[readIdx].createView() });
+                }
+            }
+        });
+
+        return this.device.createBindGroup({ layout: this.passLayouts[stageIdx], entries });
+    }
+
+
+    /**
+     * Starts the rendering loop and begins frame rendering.
+     * 
+     * @param timer - Optional WebGPU timing utility for performance measurement of render passes
+     * @returns Returns `this` for method chaining
+     * 
+     * @remarks
+     * This method initiates a continuous animation loop using `requestAnimationFrame`.
+     * For each frame, it:
+     * - Manages audio plugin playback if available
+     * - Updates uniforms based on elapsed time or audio time
+     * - Executes all render/compute passes with optional timing queries
+     * - Renders the final output to the canvas
+     * - Submits all commands to the GPU queue
+     * 
+     * The method alternates between two texture buffers using a ping-pong pattern
+     * to allow passes to read from and write to textures without conflicts.
+     * 
+     * @example
+     * ```typescript
+     * const shader = new TinyShade();
+     * shader.compile();
+     * const timer = new WebGPUTiming(device);
+     * shader.run(timer);
+     * ```
+     */
+    run(timer?: WebGPUTiming): this {
+        const frame = (now: number) => {
+            if (!this.isCompiled) return;
+
+            if (this.audioPlugin && !this.startedAudio) {
+                this.audioPlugin.play();
+                this.startedAudio = true;
+            }
+
+            const useAudioTime = this.audioPlugin && this.audioPlugin.isPlaying;
+            const time = useAudioTime
+                ? this.audioPlugin!.getTime()
+                : (now - this.startTime) / 1000;
+
+            const writeIdx = (this.frameCounter % 2);
+
+            this.uniforms.update(time);
             Buffer.write(this.device, this.uniformBuffer, this.uniforms.float32Array);
 
             const enc = this.device.createCommandEncoder();
-            
-            // Clear storage
-            enc.beginRenderPass({ colorAttachments: [{ view: this.storageTexture.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] }).end();
+            const passTimings: { name: string, start: number, end: number }[] = [];
+            if (timer) timer.reset();
 
-            if (this.computePipeline) {
-                const cp = enc.beginComputePass();
-                cp.setPipeline(this.computePipeline);
-                cp.setBindGroup(0, this.computeBindGroup!);
-                cp.dispatchWorkgroups(Math.ceil(this.canvas.width / 8), Math.ceil(this.canvas.height / 8), 1);
-                cp.end();
-            }
+            this.passes.forEach((p, i) => {
+                const bg = this.createBindGroup(i, writeIdx);
+                let tw: GPURenderPassTimestampWrites | undefined;
 
-            this.passes.forEach(p => {
-                const res = p.interceptors?.onBefore?.(this.uniforms) as PassResponse;
-                if (res?.uniforms) Buffer.write(this.device, this.uniformBuffer, res.uniforms instanceof Float32Array ? res.uniforms : new Float32Array(res.uniforms));
+                if (timer) {
+                    const idx = timer.allocateIndices();
+                    if (idx) {
+                        tw = {
+                            querySet: timer.querySet!,
+                            beginningOfPassWriteIndex: idx.start,
+                            endOfPassWriteIndex: idx.end
+                        };
+                        passTimings.push({ name: p.name, ...idx });
+                    }
+                }
 
-                const rp = enc.beginRenderPass({
-                    colorAttachments: [{ view: p.textures[writeIdx].createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }],
-                    ...(res?.descriptor || {})
-                });
-                rp.setPipeline(p.pipelines[writeIdx]);
-                rp.setBindGroup(0, p.bindGroups[writeIdx]);
-                rp.draw(3);
-                rp.end();
+                if (p.type === 'compute') {
+                    const cp = enc.beginComputePass({ timestampWrites: tw as any });
+                    cp.setPipeline(p.pipelines[0] as GPUComputePipeline);
+                    cp.setBindGroup(0, bg);
+
+                
+                    cp.dispatchWorkgroups(
+                        Math.ceil(this.canvas.width / this.workgroupSize.x),
+                        Math.ceil(this.canvas.height / this.workgroupSize.y),
+                        1
+                    );
+
+                    cp.end();
+                } else {
+                    const rp = enc.beginRenderPass({
+                        colorAttachments: [{
+                            view: p.textures[writeIdx].createView(),
+                            loadOp: "clear",
+                            storeOp: "store",
+                            clearValue: [0, 0, 0, 1]
+                        }],
+                        timestampWrites: tw
+                    });
+                    rp.setPipeline(p.pipelines[0] as GPURenderPipeline);
+                    rp.setBindGroup(0, bg);
+                    rp.draw(3);
+                    rp.end();
+                }
             });
 
-            const mainRes = this.mainInterceptors?.onBefore?.(this.uniforms) as PassResponse;
-            if (mainRes?.uniforms) Buffer.write(this.device, this.uniformBuffer, mainRes.uniforms instanceof Float32Array ? mainRes.uniforms : new Float32Array(mainRes.uniforms));
-
-            // Dynamic Main Bind Group creation
-            const mainEntries: GPUBindGroupEntry[] = [{ binding: 0, resource: { buffer: this.uniformBuffer } }, { binding: 1, resource: sampler }];
-            for (let j = 0; j < this.passes.length; j++) {
-                mainEntries.push(
-                    { binding: 2 + j * 2, resource: this.passes[j].textures[writeIdx].createView() },
-                    { binding: 2 + j * 2 + 1, resource: this.passes[j].textures[readIdx].createView() }
-                );
+      
+            let mtw: GPURenderPassTimestampWrites | undefined;
+            if (timer) {
+                const idx = timer.allocateIndices();
+                if (idx) {
+                    mtw = {
+                        querySet: timer.querySet!,
+                        beginningOfPassWriteIndex: idx.start,
+                        endOfPassWriteIndex: idx.end
+                    };
+                    passTimings.push({ name: "main", ...idx });
+                }
             }
-            const cPos = 2 + this.passes.length * 2;
-            mainEntries.push({ binding: cPos, resource: this.storageTexture.createView() });
-            let gb = cPos + 1;
-            this.globalTextures.forEach(tex => mainEntries.push({ binding: gb++, resource: tex.createView() }));
-
-            const dynamicMainBG = this.device.createBindGroup({ layout: this.mainBindGroupLayout, entries: mainEntries });
 
             const mp = enc.beginRenderPass({
-                colorAttachments: [{ view: this.context.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }],
-                ...(mainRes?.descriptor || {})
+                colorAttachments: [{
+                    view: this.context.getCurrentTexture().createView(),
+                    loadOp: "clear",
+                    storeOp: "store",
+                    clearValue: [0, 0, 0, 1]
+                }],
+                timestampWrites: mtw
             });
             mp.setPipeline(this.mainPipeline);
-            mp.setBindGroup(0, dynamicMainBG);
+            mp.setBindGroup(0, this.createBindGroup(this.passes.length, writeIdx));
             mp.draw(3);
             mp.end();
 
             this.device.queue.submit([enc.finish()]);
 
-            const frameId = this.frameCounter;
-            this.device.queue.onSubmittedWorkDone().then(() => {
-                this.passes.forEach(p => p.interceptors?.onAfter?.({ frame: frameId, timeMS: 0 }));
-                this.mainInterceptors?.onAfter?.({ frame: frameId, timeMS: 0 });
-            });
+            if (timer) timer.resolve(passTimings);
 
+            this.frameCounter++;
             requestAnimationFrame(frame);
         };
+
         requestAnimationFrame(frame);
         return this;
     }
+
 }

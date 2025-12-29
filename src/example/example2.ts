@@ -7,11 +7,11 @@ document.addEventListener("DOMContentLoaded", async () => {
         /**
          * COMPUTE PASS: Fractal Orbit Trap
          */
-        .addCompute(0, `
+        .addCompute("computeTex0",/*wgsl*/`
          const AA: i32 = 3;
         const sqrt2_inv: f32 = 0.70710678118;
-        //##WORKGROUP_SIZE
-        @compute @workgroup_size(8, 8, 1)
+        ##WORKGROUP_SIZE
+        //@compute @workgroup_size(8, 8, 1)
         fn main(@builtin(global_invocation_id) id: vec3u) {
            const AA: i32 = 3;
             const sqrt2_inv: f32 = 0.70710678118;
@@ -80,7 +80,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         .main(`
         @fragment fn main(in: VSOut) -> @location(0) vec4f {
             let uv = in.uv;
-            let fractal = textureSample(computeTex, samp, uv).rgb;
+            let fractal = textureSample(computeTex0, samp, uv).rgb;
             
             // Add a subtle vignette and contrast
             let vignette = smoothstep(1.5, 0.3, length(uv - 0.5));

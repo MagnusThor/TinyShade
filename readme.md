@@ -5,7 +5,6 @@ A minimalist, zero-boilerplate **WebGPU** framework designed for rapid prototypi
 
 TinyShade simplifies the complex WebGPU binding model into a chainable API. It handles **Ping-Ponging** (feedback textures), **Dynamic Compute Dispatching**, and **Uniform Management** automatically.
 
-----------
 
 ## 🚀 Quick Start: The Stack
 
@@ -49,7 +48,6 @@ start();
 
 ```
 
-----------
 
 ## 📜 Shader Variables Reference
 
@@ -64,7 +62,7 @@ start();
 | `data`          | `array<f32>`     | `addCompute`  | Storage buffer (active only if `size > 0`).                                  |
 | `<name>`        | `texture_2d`     | `addTexture`  | Loaded external images/canvases (e.g., `matcap`).                             |
 
-----------
+
 
 ## 🧠 High-Level Pipeline Overview
 
@@ -97,9 +95,10 @@ Every fragment pass automatically creates a "ping-pong" pair. If you name a pass
 
 This makes effects like trails, accumulation, and cellular automata **natural and effortless**.
 
-----------
 
 ## ⬛ Core API: Step-by-Step
+
+API Doumentation can be found here - [TinyShade documentation](https://magnusthor.github.io/TinyShade/public/doc/)
 
 ### 1. Initialize
 
@@ -148,7 +147,6 @@ app.addPass("blur", `
 
 ```
 
-----------
 
 ## 🎹 Audio Integration (`addAudio`)
 
@@ -161,15 +159,52 @@ app.addAudio(mySynth) // u.time is now driven by the audio clock
 
 ```
 
-## ⚡ Technical Highlights
+## Examples
 
--   **Hardware-Aware Dispatch**: Automatically queries `maxComputeWorkgroupSize` to optimize thread counts.
+You can try the live examples here:  
+[TinyShade Examples](https://magnusthor.github.io/TinyShade/public/)
+
+>⚠️ **Note:** TinyShade is under active development. APIs, visuals, and performance characteristics may change.
+
+The source code for each example can be found in:
+
+[/src/example/](src/example/)
+
+```python  
+Each example is self-contained and intended to demonstrate a specific feature or rendering technique.
+
+```
+
+
+## ⚡ Technical Architecture
+
+-   **Atomic Pass Orchestration**: TinyShade treats the GPU as a sequential state machine. It handles the heavy lifting of `CommandEncoder` management and `Compute-to-Render` synchronization, ensuring zero-latency data handover between simulation and visualization stages.
     
--   **Zero-Input Vertexing**: Injects an optimized full-screen triangle requiring no CPU-side vertex buffers.
+-   **Recursive Temporal Buffer Management**: Implements a sophisticated "Ping-Pong" texture strategy. By maintaining dual-buffer states for every fragment pass, the engine enables $O(1)$ access to historical frame data (`prev_name`), turning linear shaders into recursive feedback systems.
     
--   **Smart Binding Safety**: Orchestrates `@group(0)` bindings so textures, samplers, and buffers never collide.
+-   **Adaptive Dispatch Heuristics**: Rather than using naive thread counts, the engine queries hardware limits to calculate the **Optimal Workgroup Topology**. It aligns dispatch grids with the GPU's internal SIMD width, maximizing occupancy and throughput across varying architectures.
     
--   **Master Clock Sync**: Uses `IAudioPlugin.isPlaying` to intelligently toggle between system time and audio time.
+-   **Sample-Locked Synchronization**: By hijacking the uniform update loop with `IAudioPlugin`, the engine achieves sample-accurate phase alignment between visuals and audio. This eliminates the "clock drift" common in `requestAnimationFrame` and ensures every pixel update is chronologically locked to the audio sample clock.
+    
+-   **Procedural Geometry Injection**: Utilizes a "Vertex-less" rendering technique. By generating Clip Space coordinates directly from `@builtin(vertex_index)`, it bypasses the entire Input Assembler stage, reducing memory bandwidth overhead and eliminating the need for CPU-side vertex buffers.
     
 
-Magnus Thor - December 2025
+----------
+
+### 🚀 Developer Tip: Avoiding Name Collisions
+
+Since we now use dynamic naming, it’s important to remember that your pass names become **global identifiers** in WGSL.
+
+> **Rule of Thumb:** Avoid naming your passes after WGSL reserved words (like `texture`, `var`, `fn`, `array`) or your own `addCommon` function names. A name like `fluid_sim` is always safer and more readable than just `fluid`.
+
+
+## 🥂 Special Thanks & Credits
+TinyShade stands on the shoulders of giants in the creative coding community:
+
+**Mårten Rånge**: Huge thanks for the "[Introduction to Path Tracers](https://github.com/MagnusThor/so-you-think-you-can-code-2025/blob/main/day08/readme.md)" article featured in the SYTYCC 2025 Advent Calendar. The logic for the path-tracing examples in this repo is ported directly from his masterful WGSL/WebGPU implementation.
+
+**PCrush**: For the [GPUSynth architecture](https://github.com/MagnusThor/so-you-think-you-can-code-2025/blob/main/day04/readme.md). TinyShade’s audio integration and internal DSP logic are heavily inspired by and adapted from his work on GPU-based sound synthesis.
+
+---    
+
+_Magnus Thor - December 2025_

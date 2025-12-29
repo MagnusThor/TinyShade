@@ -3,7 +3,7 @@ import { WebGPUTiming } from "./plugins/WebGPUTiming";
 import { UniformLayout } from "./UniformLayout";
 
 
- const Buffer = {
+const Buffer = {
     write(device: GPUDevice, buffer: GPUBuffer, data: ArrayBufferView, offset = 0): GPUBuffer {
         device.queue.writeBuffer(buffer, offset, data.buffer, data.byteOffset, data.byteLength);
         return buffer;
@@ -31,6 +31,7 @@ export interface IPass {
     textures: GPUTexture[];
     pipelines: (GPURenderPipeline | GPUComputePipeline)[];
     storageBuffer?: GPUBuffer;
+    isAtomic?: boolean;
     isMain?: boolean;
 }
 
@@ -62,7 +63,7 @@ export interface IPass {
 export class TinyShade {
     public device!: GPUDevice;
     private context!: GPUCanvasContext;
-    private canvas: HTMLCanvasElement;
+    public canvas: HTMLCanvasElement;
     private uniforms: UniformLayout;
     private uniformBuffer!: GPUBuffer;
     private audioPlugin?: IAudioPlugin;
@@ -86,7 +87,7 @@ export class TinyShade {
         this.uniforms = new UniformLayout([this.canvas.width, this.canvas.height, window.devicePixelRatio]);
     }
 
-   
+
     /**
      * Creates and initializes a new TinyShade instance with WebGPU support.
      * @param canvasId - The HTML element ID of the canvas to bind to the renderer
@@ -205,6 +206,31 @@ export class TinyShade {
     }
 
     /**
+     * Adds an atomic compute shader pass to the renderer.
+     * @param name - The name identifier for this compute pass
+     * @param wgsl - The WGSL shader code for the compute shader
+     * @param bufferSize - The number of u32 elements in the storage buffer
+     * @returns This instance for method chaining
+     */
+    addAtomicCompute(name: string, wgsl: string, bufferSize: number): this {
+        const buf = this.device.createBuffer({
+            size: bufferSize * 4, // 4 bytes for u32
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+        });
+
+      this.passes.push({
+            name,
+            type: 'compute',
+            shader: wgsl,
+            storageBuffer: buf,
+            isAtomic: true, 
+            pipelines: [],
+            textures: []
+        });
+        return this;
+    }
+
+    /**
      * Adds a render pass to the shader pipeline.
      * @param name - The name identifier for the pass
      * @param wgsl - The WGSL shader code for the fragment stage
@@ -232,49 +258,76 @@ export class TinyShade {
     }
 
 
+
     private compile() {
         if (!this.uniformBuffer) this.setUniforms();
 
-        const vertCode = /*wgsl*/`
-            struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
-            @vertex fn vs(@builtin(vertex_index) i: u32) -> VSOut {
-                var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
-                return VSOut(vec4f(p[i], 0.0, 1.0), vec2f(p[i].x * 0.5 + 0.5, 0.5 - p[i].y * 0.5));
-            }
-        `;
+        const vertCode = `
+        struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+        @vertex fn vs(@builtin(vertex_index) i: u32) -> VSOut {
+            var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+            return VSOut(vec4f(p[i], 0.0, 1.0), vec2f(p[i].x * 0.5 + 0.5, 0.5 - p[i].y * 0.5));
+        }
+    `;
 
-        const allStages = [...this.passes, { name: "main", type: 'fragment', shader: this.mainPassShader, isMain: true, textures: [], pipelines: [] } as IPass];
+        const allStages = [...this.passes, {
+            name: "main",
+            type: 'fragment',
+            shader: this.mainPassShader,
+            isMain: true,
+            textures: [],
+            pipelines: []
+        } as IPass];
 
         allStages.forEach((currentPass, stageIdx) => {
-            let b = 1;
+            let b = 1; // Binding 0 is always Uniforms
             const layoutEntries: GPUBindGroupLayoutEntry[] = [{
-                binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, buffer: { type: 'uniform' }
+                binding: 0,
+                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+                buffer: { type: 'uniform' }
             }];
 
             let header = `${this.uniforms.wgslStruct}\n@group(0) @binding(0) var<uniform> u: Uniforms;\n`;
 
+            // Global Textures
             this.globalTextures.forEach((_, name) => {
                 header += `@group(0) @binding(${b}) var ${name}: texture_2d<f32>;\n`;
                 layoutEntries.push({ binding: b++, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: {} });
             });
 
+            // Global Sampler
             header += `@group(0) @binding(${b}) var samp: sampler;\n`;
             layoutEntries.push({ binding: b++, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, sampler: {} });
 
-            this.passes.forEach((p, i) => {
+            // Pass-specific Resources
+            this.passes.forEach((p) => {
                 if (p.type === 'compute') {
-                    if (currentPass === p) {
-                        header += `@group(0) @binding(${b}) var outTex: texture_storage_2d<rgba8unorm, write>;\n`;
-                        layoutEntries.push({ binding: b++, visibility: GPUShaderStage.COMPUTE, storageTexture: { format: 'rgba8unorm', access: 'write-only' } });
-                        if (p.storageBuffer) {
-                            header += `@group(0) @binding(${b}) var<storage, read_write> data: array<f32>;\n`;
-                            layoutEntries.push({ binding: b++, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } });
+                    // 1. Storage Textures (Only if the pass has one)
+                    if (p.textures.length > 0) {
+                        if (currentPass === p) {
+                            header += `@group(0) @binding(${b}) var outTex: texture_storage_2d<rgba8unorm, write>;\n`;
+                            layoutEntries.push({ binding: b++, visibility: GPUShaderStage.COMPUTE, storageTexture: { format: 'rgba8unorm', access: 'write-only' } });
+                        } else {
+                            header += `@group(0) @binding(${b}) var ${p.name}: texture_2d<f32>;\n`;
+                            layoutEntries.push({ binding: b++, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: {} });
                         }
-                    } else {
-                        header += `@group(0) @binding(${b}) var ${p.name}: texture_2d<f32>;\n`;
-                        layoutEntries.push({ binding: b++, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: {} });
+                    }
+
+                    // 2. Storage Buffers (Atomic or Standard)
+                    if (p.storageBuffer) {
+                        const isOwner = (currentPass === p);
+                        const arrayType = p.isAtomic ? "array<atomic<u32>>" : "array<f32>";
+                        const bufName = isOwner ? "data" : `${p.name}_data`;
+
+                        header += `@group(0) @binding(${b}) var<storage, read_write> ${bufName}: ${arrayType};\n`;
+                        layoutEntries.push({
+                            binding: b++,
+                            visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+                            buffer: { type: 'storage' }
+                        });
                     }
                 } else {
+                    // Fragment Pass Textures (Ping-Pong)
                     header += `@group(0) @binding(${b}) var ${p.name}: texture_2d<f32>;\n`;
                     layoutEntries.push({ binding: b++, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: {} });
                     header += `@group(0) @binding(${b}) var prev_${p.name}: texture_2d<f32>;\n`;
@@ -285,22 +338,30 @@ export class TinyShade {
             const layout = this.device.createBindGroupLayout({ entries: layoutEntries });
             this.passLayouts[stageIdx] = layout;
 
-            const code = (currentPass.type === 'fragment' ? vertCode : "") +  
+            const code = (currentPass.type === 'fragment' ? vertCode : "") +
                 header +
                 this.commonWGSL +
-                currentPass.shader.replace("##WORKGROUP_SIZE", `@compute ${this.workgroupSize.str}`);
+                (currentPass.type === 'compute'
+                    ? currentPass.shader.replace("##WORKGROUP_SIZE", `@compute ${this.workgroupSize.str}`)
+                    : currentPass.shader);
 
             const mod = this.device.createShaderModule({ code });
-
             const pipeLayout = this.device.createPipelineLayout({ bindGroupLayouts: [layout] });
 
             if (currentPass.type === 'compute') {
-                currentPass.pipelines[0] = this.device.createComputePipeline({ layout: pipeLayout, compute: { module: mod, entryPoint: 'main' } });
+                currentPass.pipelines[0] = this.device.createComputePipeline({
+                    layout: pipeLayout,
+                    compute: { module: mod, entryPoint: 'main' }
+                });
             } else {
                 currentPass.pipelines[0] = this.device.createRenderPipeline({
                     layout: pipeLayout,
                     vertex: { module: mod, entryPoint: 'vs' },
-                    fragment: { module: mod, entryPoint: 'main', targets: [{ format: currentPass.isMain ? navigator.gpu.getPreferredCanvasFormat() : "bgra8unorm" }] }
+                    fragment: {
+                        module: mod,
+                        entryPoint: 'main',
+                        targets: [{ format: currentPass.isMain ? navigator.gpu.getPreferredCanvasFormat() : "bgra8unorm" }]
+                    }
                 });
                 if (currentPass.isMain) this.mainPipeline = currentPass.pipelines[0] as GPURenderPipeline;
             }
@@ -311,28 +372,41 @@ export class TinyShade {
 
     private createBindGroup(stageIdx: number, writeIdx: number): GPUBindGroup {
         const readIdx = 1 - writeIdx;
-        const currentPass = stageIdx < this.passes.length ? this.passes[stageIdx] : null;
         const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: { buffer: this.uniformBuffer } }];
         let b = 1;
 
+        // Global Textures
         this.globalTextures.forEach(tex => entries.push({ binding: b++, resource: tex.createView() }));
-        entries.push({ binding: b++, resource: this.device.createSampler({ magFilter: 'linear', minFilter: 'linear' }) });
 
+        // Global Sampler
+        entries.push({
+            binding: b++,
+            resource: this.device.createSampler({ magFilter: 'linear', minFilter: 'linear' })
+        });
+
+        // Pass-specific Resources
         this.passes.forEach((p, i) => {
             if (p.type === 'compute') {
-                entries.push({ binding: b++, resource: p.textures[0].createView() });
-                if (p.storageBuffer && currentPass === p) {
+                // 1. Texture View
+                if (p.textures.length > 0) {
+                    // If it's a storage texture being written to, use standard view. 
+                    // WebGPU automatically handles the usage based on the Layout.
+                    entries.push({ binding: b++, resource: p.textures[0].createView() });
+                }
+
+                // 2. Storage Buffer
+                if (p.storageBuffer) {
                     entries.push({ binding: b++, resource: { buffer: p.storageBuffer } });
                 }
             } else {
+                // Fragment Pass Ping-Pong views
                 if (i === stageIdx) {
+                    // Currently writing to writeIdx, so we read from readIdx
                     entries.push({ binding: b++, resource: p.textures[readIdx].createView() });
-                    entries.push({ binding: b++, resource: p.textures[readIdx].createView() });
-                } else if (i < stageIdx) {
-                    entries.push({ binding: b++, resource: p.textures[writeIdx].createView() });
                     entries.push({ binding: b++, resource: p.textures[readIdx].createView() });
                 } else {
-                    entries.push({ binding: b++, resource: p.textures[readIdx].createView() });
+                    // For other stages, just provide the most recent complete data
+                    entries.push({ binding: b++, resource: p.textures[writeIdx].createView() });
                     entries.push({ binding: b++, resource: p.textures[readIdx].createView() });
                 }
             }
@@ -392,6 +466,9 @@ export class TinyShade {
             if (timer) timer.reset();
 
             this.passes.forEach((p, i) => {
+                if (p.isAtomic && p.storageBuffer) {
+                    enc.clearBuffer(p.storageBuffer);
+                }
                 const bg = this.createBindGroup(i, writeIdx);
                 let tw: GPURenderPassTimestampWrites | undefined;
 
@@ -412,7 +489,7 @@ export class TinyShade {
                     cp.setPipeline(p.pipelines[0] as GPUComputePipeline);
                     cp.setBindGroup(0, bg);
 
-                
+
                     cp.dispatchWorkgroups(
                         Math.ceil(this.canvas.width / this.workgroupSize.x),
                         Math.ceil(this.canvas.height / this.workgroupSize.y),
@@ -437,7 +514,7 @@ export class TinyShade {
                 }
             });
 
-      
+
             let mtw: GPURenderPassTimestampWrites | undefined;
             if (timer) {
                 const idx = timer.allocateIndices();

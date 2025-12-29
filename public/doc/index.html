@@ -1,72 +1,60 @@
 <!DOCTYPE html><html class="default" lang="en" data-base="./"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>TinyShade</title><meta name="description" content="Documentation for TinyShade"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script defer src="assets/main.js"></script><script async src="assets/icons.js" id="tsd-icons-script"></script><script async src="assets/search.js" id="tsd-search-script"></script><script async src="assets/navigation.js" id="tsd-nav-script"></script><script async src="assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar"><div class="tsd-toolbar-contents container"><a href="index.html" class="title">TinyShade</a><div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/><ul role="listbox" id="tsd-search-results"></ul><div id="tsd-search-status" aria-live="polite" aria-atomic="true"><div>Preparing search index...</div></div></dialog><a href="#" class="tsd-widget menu" id="tsd-toolbar-menu-trigger" data-toggle="menu" aria-label="Menu"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-menu"></use></svg></a></div></header><div class="container container-main"><div class="col-content"><div class="tsd-page-title"><h1>TinyShade</h1></div><div class="tsd-panel tsd-typography"><h1 id="🌑-tinyshade" class="tsd-anchor-link">🌑 TinyShade<a href="#🌑-tinyshade" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h1><p>A minimalist, zero-boilerplate <strong>WebGPU</strong> framework designed for rapid prototyping of compute-driven visuals, simulations, and multi-pass post-process effects.</p>
 <p>TinyShade simplifies the complex WebGPU binding model into a chainable API. It handles <strong>Ping-Ponging</strong> (feedback textures), <strong>Dynamic Compute Dispatching</strong>, and <strong>Uniform Management</strong> automatically.</p>
-<hr>
 <h2 id="🚀-quick-start-the-stack" class="tsd-anchor-link">🚀 Quick Start: The Stack<a href="#🚀-quick-start-the-stack" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><p>This example demonstrates the power of the full chain: loading external textures, sharing common math, running a compute simulation named &quot;fluid&quot;, and rendering a final lit scene.</p>
 <pre><code class="ts"><span class="hl-0">import</span><span class="hl-1"> { </span><span class="hl-2">TinyShade</span><span class="hl-1"> } </span><span class="hl-0">from</span><span class="hl-1"> </span><span class="hl-3">&quot;./TinyShade&quot;</span><span class="hl-1">;</span><br/><br/><span class="hl-4">const</span><span class="hl-1"> </span><span class="hl-5">start</span><span class="hl-1"> = </span><span class="hl-4">async</span><span class="hl-1"> () </span><span class="hl-4">=&gt;</span><span class="hl-1"> {</span><br/><span class="hl-1">    </span><span class="hl-4">const</span><span class="hl-1"> </span><span class="hl-6">app</span><span class="hl-1"> = </span><span class="hl-0">await</span><span class="hl-1"> </span><span class="hl-2">TinyShade</span><span class="hl-1">.</span><span class="hl-5">create</span><span class="hl-1">(</span><span class="hl-3">&quot;canvas&quot;</span><span class="hl-1">);</span><br/><br/><span class="hl-1">    (</span><span class="hl-0">await</span><span class="hl-1"> </span><span class="hl-2">app</span><br/><span class="hl-1">        </span><span class="hl-7">// 1. Load assets once; accessible by name in all shader stages</span><br/><span class="hl-1">        .</span><span class="hl-5">addTexture</span><span class="hl-1">(</span><span class="hl-3">&quot;matcap&quot;</span><span class="hl-1">, </span><span class="hl-3">&quot;./textures/gold_matcap.jpg&quot;</span><span class="hl-1">)</span><br/><span class="hl-1">        </span><br/><span class="hl-1">        </span><span class="hl-7">// 2. Inject shared math automatically</span><br/><span class="hl-1">        .</span><span class="hl-5">addCommon</span><span class="hl-1">(</span><span class="hl-3">`</span><br/><span class="hl-3">            fn sdfSphere(p: vec3f, s: f32) -&gt; f32 { return length(p) - s; }</span><br/><span class="hl-3">        `</span><span class="hl-1">)</span><br/><span class="hl-1">        </span><br/><span class="hl-1">        </span><span class="hl-7">// 3. Compute Pass: Output is accessible in later stages as &#39;fluid&#39;</span><br/><span class="hl-1">        .</span><span class="hl-5">addCompute</span><span class="hl-1">(</span><span class="hl-3">&quot;fluid&quot;</span><span class="hl-1">, </span><span class="hl-3">`</span><br/><span class="hl-3">            fn main(@builtin(global_invocation_id) id: vec3u) {</span><br/><span class="hl-3">                textureStore(outTex, id.xy, vec4f(u.time % 1.0)); </span><br/><span class="hl-3">            }</span><br/><span class="hl-3">        `</span><span class="hl-1">)</span><br/><span class="hl-1">        </span><br/><span class="hl-1">        </span><span class="hl-7">// 4. Main Pass: Final rendering using &#39;matcap&#39; and &#39;fluid&#39; textures</span><br/><span class="hl-1">        .</span><span class="hl-5">main</span><span class="hl-1">(</span><span class="hl-3">`</span><br/><span class="hl-3">            @fragment fn main(in: VSOut) -&gt; @location(0) vec4f {</span><br/><span class="hl-3">                let simData = textureSample(fluid, samp, in.uv).r;</span><br/><span class="hl-3">                let lit = textureSample(matcap, samp, in.uv).rgb * simData;</span><br/><span class="hl-3">                return vec4f(lit, 1.0);</span><br/><span class="hl-3">            }</span><br/><span class="hl-3">        `</span><span class="hl-1">)</span><br/><span class="hl-1">    ).</span><span class="hl-5">run</span><span class="hl-1">();</span><br/><span class="hl-1">};</span><br/><br/><span class="hl-5">start</span><span class="hl-1">();</span><br/>
 </code><button type="button">Copy</button></pre>
 
-<hr>
 <h2 id="📜-shader-variables-reference" class="tsd-anchor-link">📜 Shader Variables Reference<a href="#📜-shader-variables-reference" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><table>
 <thead>
 <tr>
-<th>Variable</th>
-<th>Type</th>
+<th>Variable Type</th>
 <th>Source</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>u.&lt;name&gt;</code></td>
-<td><code>any</code></td>
-<td><code>setUniforms</code></td>
-<td>Access any custom uniform defined in JS.</td>
+<td><code>&lt;name&gt;</code></td>
+<td>any</td>
+<td>setUniformsAccess any custom uniform defined in JS.</td>
 </tr>
 <tr>
 <td><code>&lt;name&gt;</code></td>
-<td><code>texture_2d</code></td>
-<td><code>addCompute</code></td>
-<td>The output texture of a named compute pass.</td>
+<td>texture_2d</td>
+<td>addCompute The output texture of a named compute pass.</td>
 </tr>
 <tr>
-<td><code>&lt;name&gt;</code></td>
-<td><code>texture_2d</code></td>
-<td><code>addPass</code></td>
-<td>The current frame output of a named fragment pass.</td>
+<td><code>&lt;name&gt;_data</code></td>
+<td>array<u32></td>
+<td>addAtomicCompute The raw atomic buffer of a named atomic pass.</td>
 </tr>
 <tr>
 <td><code>prev_&lt;name&gt;</code></td>
-<td><code>texture_2d</code></td>
-<td><code>addPass</code></td>
-<td>The <strong>previous frame</strong> (feedback) of a named fragment pass.</td>
+<td>texture_2d</td>
+<td>addPass The previous frame (feedback) of a named fragment pass.</td>
 </tr>
 <tr>
 <td><code>outTex</code></td>
-<td><code>texture_storage</code></td>
-<td>Internal</td>
-<td>The write-only target inside the <strong>active</strong> compute pass.</td>
-</tr>
-<tr>
-<td><code>samp</code></td>
-<td><code>sampler</code></td>
-<td>Internal</td>
-<td>A linear, filtering sampler ready to use globally.</td>
+<td>texture_storage</td>
+<td>Internal The write-only target inside the active compute pass.</td>
 </tr>
 <tr>
 <td><code>data</code></td>
-<td><code>array&lt;f32&gt;</code></td>
-<td><code>addCompute</code></td>
-<td>Storage buffer (active only if <code>size &gt; 0</code>).</td>
+<td>atomic<u32></td>
+<td>addAtomicCompute Read/Write atomic buffer (active only within its own pass).</td>
 </tr>
 <tr>
-<td><code>&lt;name&gt;</code></td>
-<td><code>texture_2d</code></td>
-<td><code>addTexture</code></td>
-<td>Loaded external images/canvases (e.g., <code>matcap</code>).</td>
+<td><code>samp</code></td>
+<td>sampler</td>
+<td>Internal A linear, filtering sampler ready to use globally.</td>
+</tr>
+<tr>
+<td><code>data</code></td>
+<td>array<f32></td>
+<td>addCompute Storage buffer (active only if size &gt; 0).</td>
 </tr>
 </tbody>
 </table>
-<hr>
 <h2 id="🧠-high-level-pipeline-overview" class="tsd-anchor-link">🧠 High-Level Pipeline Overview<a href="#🧠-high-level-pipeline-overview" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><p>TinyShade is built around a <strong>simple, linear execution model</strong>:</p>
 <blockquote>
 <p><strong>Data flows forward through a named chain of GPU passes — and each pass remembers its own past.</strong></p>
@@ -94,8 +82,8 @@
 </li>
 </ul>
 <p>This makes effects like trails, accumulation, and cellular automata <strong>natural and effortless</strong>.</p>
-<hr>
-<h2 id="⬛-core-api-step-by-step" class="tsd-anchor-link">⬛ Core API: Step-by-Step<a href="#⬛-core-api-step-by-step" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><h3 id="1-initialize" class="tsd-anchor-link">1. Initialize<a href="#1-initialize" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><p>Sets up the GPU context, detects hardware workgroup limits, and configures the canvas.</p>
+<h2 id="⬛-core-api-step-by-step" class="tsd-anchor-link">⬛ Core API: Step-by-Step<a href="#⬛-core-api-step-by-step" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><p>API Doumentation can be found here - <a href="https://magnusthor.github.io/TinyShade/public/doc/">TinyShade documentation</a></p>
+<h3 id="1-initialize" class="tsd-anchor-link">1. Initialize<a href="#1-initialize" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><p>Sets up the GPU context, detects hardware workgroup limits, and configures the canvas.</p>
 <p>TypeScript</p>
 <pre><code><span class="hl-4">const</span><span class="hl-1"> </span><span class="hl-6">app</span><span class="hl-1"> = </span><span class="hl-0">await</span><span class="hl-1"> </span><span class="hl-2">TinyShade</span><span class="hl-1">.</span><span class="hl-5">create</span><span class="hl-1">(</span><span class="hl-3">&quot;canvas-id&quot;</span><span class="hl-1">);</span>
 </code><button>Copy</button></pre>
@@ -118,8 +106,30 @@
 
 </code><button type="button">Copy</button></pre>
 
+<h3 id="3-atomic-scattering-" class="tsd-anchor-link">3. Atomic Scattering (<code>addAtomicCompute</code>)<a href="#3-atomic-scattering-" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><p>This specialized pass is designed for <strong>Many-to-One</strong> operations where multiple threads need to write to the same memory address safely (e.g., projection, heatmaps, splatting).</p>
+<pre><code class="rust">app.addAtomicCompute("heatmap", `
+    ##WORKGROUP_SIZE
+    fn main(@builtin(global_invocation_id) id: vec3u) {
+        let i = id.x;
+        let pos = physics_data[i]; // Reading from a previous pass
+        let coords = project_to_screen(pos);
+        
+        // Safely increment a pixel's energy value
+        atomicAdd(&data[coords.y * width + coords.x], 1u);
+    }
+`, PIXEL_COUNT);
+
+</code><button type="button">Copy</button></pre>
+
+<blockquote>
+<p><strong>When to use <code>addAtomicCompute</code>?</strong></p>
+<ul>
+<li><strong>YES:</strong> For &quot;Splatting&quot; (projecting 3D particles onto a 2D grid), creating density heatmaps, or histogram generation.</li>
+<li><strong>NO:</strong> For standard image processing or SDF rendering. Atomics introduce serialization overhead; only use them when thread collisions are a mathematical requirement.</li>
+</ul>
+</blockquote>
 <p><em>Note: <code>##WORKGROUP_SIZE</code> is replaced with hardware-optimized settings like <code>@workgroup_size(16, 16, 1)</code>.</em></p>
-<h3 id="3-multi-pass-fragment-" class="tsd-anchor-link">3. Multi-Pass Fragment (<code>addPass</code>)<a href="#3-multi-pass-fragment-" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><p>Add sequential post-processing. Each <code>addPass</code> defines a texture name for subsequent shaders.</p>
+<h3 id="4-multi-pass-fragment-" class="tsd-anchor-link">4. Multi-Pass Fragment (<code>addPass</code>)<a href="#4-multi-pass-fragment-" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><p>Add sequential post-processing. Each <code>addPass</code> defines a texture name for subsequent shaders.</p>
 <pre><code class="rust">app.addPass("blur", `
     @fragment fn main(in: VSOut) -> @location(0) vec4f {
         let current = textureSample(baseLayer, samp, in.uv);
@@ -130,24 +140,46 @@
 
 </code><button type="button">Copy</button></pre>
 
-<hr>
 <h2 id="🎹-audio-integration-" class="tsd-anchor-link">🎹 Audio Integration (<code>addAudio</code>)<a href="#🎹-audio-integration-" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><p>TinyShade supports sample-accurate timing. By implementing <code>IAudioPlugin</code>, an engine (like <code>GPUSynth</code>) can drive the <code>u.time</code> uniform.</p>
 <pre><code class="ts"><span class="hl-2">app</span><span class="hl-1">.</span><span class="hl-5">addAudio</span><span class="hl-1">(</span><span class="hl-2">mySynth</span><span class="hl-1">) </span><span class="hl-7">// u.time is now driven by the audio clock</span><br/><span class="hl-1">   .</span><span class="hl-5">run</span><span class="hl-1">();</span><br/>
 </code><button type="button">Copy</button></pre>
 
-<h2 id="⚡-technical-highlights" class="tsd-anchor-link">⚡ Technical Highlights<a href="#⚡-technical-highlights" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><ul>
+<h2 id="examples" class="tsd-anchor-link">Examples<a href="#examples" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><p>You can try the live examples here:<br>
+<a href="https://magnusthor.github.io/TinyShade/public/">TinyShade Examples</a></p>
+<blockquote>
+<p>⚠️ <strong>Note:</strong> TinyShade is under active development. APIs, visuals, and performance characteristics may change.</p>
+</blockquote>
+<p>The source code for each example can be found in:</p>
+<p><a href="media/example">/src/example/</a></p>
+<pre><code class="python">Each example is self-contained and intended to demonstrate a specific feature or rendering technique.
+
+</code><button type="button">Copy</button></pre>
+
+<h2 id="⚡-technical-architecture" class="tsd-anchor-link">⚡ Technical Architecture<a href="#⚡-technical-architecture" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><ul>
 <li>
-<p><strong>Hardware-Aware Dispatch</strong>: Automatically queries <code>maxComputeWorkgroupSize</code> to optimize thread counts.</p>
+<p><strong>Atomic Pass Orchestration</strong>: TinyShade treats the GPU as a sequential state machine. It handles the heavy lifting of <code>CommandEncoder</code> management and <code>Compute-to-Render</code> synchronization, ensuring zero-latency data handover between simulation and visualization stages.</p>
 </li>
 <li>
-<p><strong>Zero-Input Vertexing</strong>: Injects an optimized full-screen triangle requiring no CPU-side vertex buffers.</p>
+<p><strong>Recursive Temporal Buffer Management</strong>: Implements a sophisticated &quot;Ping-Pong&quot; texture strategy. By maintaining dual-buffer states for every fragment pass, the engine enables $O(1)$ access to historical frame data (<code>prev_name</code>), turning linear shaders into recursive feedback systems.</p>
 </li>
 <li>
-<p><strong>Smart Binding Safety</strong>: Orchestrates <code>@group(0)</code> bindings so textures, samplers, and buffers never collide.</p>
+<p><strong>Adaptive Dispatch Heuristics</strong>: Rather than using naive thread counts, the engine queries hardware limits to calculate the <strong>Optimal Workgroup Topology</strong>. It aligns dispatch grids with the GPU's internal SIMD width, maximizing occupancy and throughput across varying architectures.</p>
 </li>
 <li>
-<p><strong>Master Clock Sync</strong>: Uses <code>IAudioPlugin.isPlaying</code> to intelligently toggle between system time and audio time.</p>
+<p><strong>Sample-Locked Synchronization</strong>: By hijacking the uniform update loop with <code>IAudioPlugin</code>, the engine achieves sample-accurate phase alignment between visuals and audio. This eliminates the &quot;clock drift&quot; common in <code>requestAnimationFrame</code> and ensures every pixel update is chronologically locked to the audio sample clock.</p>
+</li>
+<li>
+<p><strong>Procedural Geometry Injection</strong>: Utilizes a &quot;Vertex-less&quot; rendering technique. By generating Clip Space coordinates directly from <code>@builtin(vertex_index)</code>, it bypasses the entire Input Assembler stage, reducing memory bandwidth overhead and eliminating the need for CPU-side vertex buffers.</p>
 </li>
 </ul>
-<p>Magnus Thor - December 2025</p>
-</div></div><div class="col-sidebar"><div class="page-menu"><div class="tsd-navigation settings"><details class="tsd-accordion"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg><h3>Settings</h3></summary><div class="tsd-accordion-details"><div class="tsd-filter-visibility"><span class="settings-label">Member Visibility</span><ul id="tsd-filter-options"><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-protected" name="protected"/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>Protected</span></label></li><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-inherited" name="inherited" checked/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>Inherited</span></label></li><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-external" name="external"/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>External</span></label></li></ul></div><div class="tsd-theme-toggle"><label class="settings-label" for="tsd-theme">Theme</label><select id="tsd-theme"><option value="os">OS</option><option value="light">Light</option><option value="dark">Dark</option></select></div></div></details></div><details open class="tsd-accordion tsd-page-navigation"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg><h3>On This Page</h3></summary><div class="tsd-accordion-details"><a href="#🌑-tinyshade"><span>🌑 <wbr/>Tiny<wbr/>Shade</span></a><ul><li><a href="#🚀-quick-start-the-stack"><span>🚀 <wbr/>Quick <wbr/>Start: <wbr/>The <wbr/>Stack</span></a></li><li><a href="#📜-shader-variables-reference"><span>📜 <wbr/>Shader <wbr/>Variables <wbr/>Reference</span></a></li><li><a href="#🧠-high-level-pipeline-overview"><span>🧠 <wbr/>High-<wbr/>Level <wbr/>Pipeline <wbr/>Overview</span></a></li><li><ul><li><a href="#the-named-execution-flow"><span>The <wbr/>Named <wbr/>Execution <wbr/>Flow</span></a></li><li><a href="#temporal-feedback-is-built-in"><span>Temporal <wbr/>Feedback <wbr/>Is <wbr/>Built-<wbr/>In</span></a></li></ul></li><li><a href="#⬛-core-api-step-by-step"><span>⬛ <wbr/>Core <wbr/>API: <wbr/>Step-<wbr/>by-<wbr/>Step</span></a></li><li><ul><li><a href="#1-initialize"><span>1. <wbr/>Initialize</span></a></li><li><a href="#2-compute-engine-"><span>2. <wbr/>Compute <wbr/>Engine ()</span></a></li><li><a href="#3-multi-pass-fragment-"><span>3. <wbr/>Multi-<wbr/>Pass <wbr/>Fragment ()</span></a></li></ul></li><li><a href="#🎹-audio-integration-"><span>🎹 <wbr/>Audio <wbr/>Integration ()</span></a></li><li><a href="#⚡-technical-highlights"><span>⚡ <wbr/>Technical <wbr/>Highlights</span></a></li></ul></div></details></div><div class="site-menu"><nav class="tsd-navigation"><a href="modules.html">TinyShade</a><ul class="tsd-small-nested-navigation" id="tsd-nav-container"><li>Loading...</li></ul></nav></div></div></div><footer><p class="tsd-generator">Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></footer><div class="overlay"></div></body></html>
+<hr>
+<h3 id="🚀-developer-tip-avoiding-name-collisions" class="tsd-anchor-link">🚀 Developer Tip: Avoiding Name Collisions<a href="#🚀-developer-tip-avoiding-name-collisions" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><p>Since we now use dynamic naming, it’s important to remember that your pass names become <strong>global identifiers</strong> in WGSL.</p>
+<blockquote>
+<p><strong>Rule of Thumb:</strong> Avoid naming your passes after WGSL reserved words (like <code>texture</code>, <code>var</code>, <code>fn</code>, <code>array</code>) or your own <code>addCommon</code> function names. A name like <code>fluid_sim</code> is always safer and more readable than just <code>fluid</code>.</p>
+</blockquote>
+<h2 id="🥂-special-thanks-credits" class="tsd-anchor-link">🥂 Special Thanks &amp; Credits<a href="#🥂-special-thanks-credits" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><p>TinyShade stands on the shoulders of giants in the creative coding community:</p>
+<p><strong>Mårten Rånge</strong>: Huge thanks for the &quot;<a href="https://github.com/MagnusThor/so-you-think-you-can-code-2025/blob/main/day08/readme.md">Introduction to Path Tracers</a>&quot; article featured in the SYTYCC 2025 Advent Calendar. The logic for the path-tracing examples in this repo is ported directly from his masterful WGSL/WebGPU implementation.</p>
+<p><strong>PCrush</strong>: For the <a href="https://github.com/MagnusThor/so-you-think-you-can-code-2025/blob/main/day04/readme.md">GPUSynth architecture</a>. TinyShade’s audio integration and internal DSP logic are heavily inspired by and adapted from his work on GPU-based sound synthesis.</p>
+<hr>
+<p><em>Magnus Thor - December 2025</em></p>
+</div></div><div class="col-sidebar"><div class="page-menu"><div class="tsd-navigation settings"><details class="tsd-accordion"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg><h3>Settings</h3></summary><div class="tsd-accordion-details"><div class="tsd-filter-visibility"><span class="settings-label">Member Visibility</span><ul id="tsd-filter-options"><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-protected" name="protected"/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>Protected</span></label></li><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-inherited" name="inherited" checked/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>Inherited</span></label></li><li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-external" name="external"/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>External</span></label></li></ul></div><div class="tsd-theme-toggle"><label class="settings-label" for="tsd-theme">Theme</label><select id="tsd-theme"><option value="os">OS</option><option value="light">Light</option><option value="dark">Dark</option></select></div></div></details></div><details open class="tsd-accordion tsd-page-navigation"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg><h3>On This Page</h3></summary><div class="tsd-accordion-details"><a href="#🌑-tinyshade"><span>🌑 <wbr/>Tiny<wbr/>Shade</span></a><ul><li><a href="#🚀-quick-start-the-stack"><span>🚀 <wbr/>Quick <wbr/>Start: <wbr/>The <wbr/>Stack</span></a></li><li><a href="#📜-shader-variables-reference"><span>📜 <wbr/>Shader <wbr/>Variables <wbr/>Reference</span></a></li><li><a href="#🧠-high-level-pipeline-overview"><span>🧠 <wbr/>High-<wbr/>Level <wbr/>Pipeline <wbr/>Overview</span></a></li><li><ul><li><a href="#the-named-execution-flow"><span>The <wbr/>Named <wbr/>Execution <wbr/>Flow</span></a></li><li><a href="#temporal-feedback-is-built-in"><span>Temporal <wbr/>Feedback <wbr/>Is <wbr/>Built-<wbr/>In</span></a></li></ul></li><li><a href="#⬛-core-api-step-by-step"><span>⬛ <wbr/>Core <wbr/>API: <wbr/>Step-<wbr/>by-<wbr/>Step</span></a></li><li><ul><li><a href="#1-initialize"><span>1. <wbr/>Initialize</span></a></li><li><a href="#2-compute-engine-"><span>2. <wbr/>Compute <wbr/>Engine ()</span></a></li><li><a href="#3-atomic-scattering-"><span>3. <wbr/>Atomic <wbr/>Scattering ()</span></a></li><li><a href="#4-multi-pass-fragment-"><span>4. <wbr/>Multi-<wbr/>Pass <wbr/>Fragment ()</span></a></li></ul></li><li><a href="#🎹-audio-integration-"><span>🎹 <wbr/>Audio <wbr/>Integration ()</span></a></li><li><a href="#examples"><span>Examples</span></a></li><li><a href="#⚡-technical-architecture"><span>⚡ <wbr/>Technical <wbr/>Architecture</span></a></li><li><ul><li><a href="#🚀-developer-tip-avoiding-name-collisions"><span>🚀 <wbr/>Developer <wbr/>Tip: <wbr/>Avoiding <wbr/>Name <wbr/>Collisions</span></a></li></ul></li><li><a href="#🥂-special-thanks-credits"><span>🥂 <wbr/>Special <wbr/>Thanks &amp; <wbr/>Credits</span></a></li></ul></div></details></div><div class="site-menu"><nav class="tsd-navigation"><a href="modules.html">TinyShade</a><ul class="tsd-small-nested-navigation" id="tsd-nav-container"><li>Loading...</li></ul></nav></div></div></div><footer><p class="tsd-generator">Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></footer><div class="overlay"></div></body></html>

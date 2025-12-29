@@ -51,16 +51,16 @@ start();
 
 ## 📜 Shader Variables Reference
 
-| Variable        | Type             | Source        | Description                                                                 |
-|-----------------|------------------|---------------|-----------------------------------------------------------------------------|
-| `u.<name>`      | `any`            | `setUniforms` | Access any custom uniform defined in JS.                                     |
-| `<name>`        | `texture_2d`     | `addCompute`  | The output texture of a named compute pass.                                  |
-| `<name>`        | `texture_2d`     | `addPass`     | The current frame output of a named fragment pass.                           |
-| `prev_<name>`   | `texture_2d`     | `addPass`     | The **previous frame** (feedback) of a named fragment pass.                  |
-| `outTex`        | `texture_storage`| Internal      | The write-only target inside the **active** compute pass.                    |
-| `samp`          | `sampler`        | Internal      | A linear, filtering sampler ready to use globally.                           |
-| `data`          | `array<f32>`     | `addCompute`  | Storage buffer (active only if `size > 0`).                                  |
-| `<name>`        | `texture_2d`     | `addTexture`  | Loaded external images/canvases (e.g., `matcap`).                             |
+| Variable Type | Source | Description |
+|--------------|--------|-------------|
+| `<name>` | any | setUniformsAccess any custom uniform defined in JS. |
+| `<name>` | texture_2d | addCompute The output texture of a named compute pass. |
+| `<name>_data` | array<u32> | addAtomicCompute The raw atomic buffer of a named atomic pass. |
+| `prev_<name>` | texture_2d | addPass The previous frame (feedback) of a named fragment pass. |
+| `outTex` | texture_storage | Internal The write-only target inside the active compute pass. |
+| `data` | atomic<u32> | addAtomicCompute Read/Write atomic buffer (active only within its own pass). |
+| `samp` | sampler | Internal A linear, filtering sampler ready to use globally. |
+| `data` | array<f32> | addCompute Storage buffer (active only if size > 0). |
 
 
 
@@ -129,9 +129,33 @@ app.addCompute("particles", `
 
 ```
 
+### 3. Atomic Scattering (`addAtomicCompute`)
+
+This specialized pass is designed for **Many-to-One** operations where multiple threads need to write to the same memory address safely (e.g., projection, heatmaps, splatting).
+
+```rust
+app.addAtomicCompute("heatmap", `
+    ##WORKGROUP_SIZE
+    fn main(@builtin(global_invocation_id) id: vec3u) {
+        let i = id.x;
+        let pos = physics_data[i]; // Reading from a previous pass
+        let coords = project_to_screen(pos);
+        
+        // Safely increment a pixel's energy value
+        atomicAdd(&data[coords.y * width + coords.x], 1u);
+    }
+`, PIXEL_COUNT);
+
+```
+
+> **When to use `addAtomicCompute`?**
+> -   **YES:** For "Splatting" (projecting 3D particles onto a 2D grid), creating density heatmaps, or histogram generation.
+> -   **NO:** For standard image processing or SDF rendering. Atomics introduce serialization overhead; only use them when thread collisions are a mathematical requirement.    
+
+
 _Note: `##WORKGROUP_SIZE` is replaced with hardware-optimized settings like `@workgroup_size(16, 16, 1)`._
 
-### 3. Multi-Pass Fragment (`addPass`)
+### 4. Multi-Pass Fragment (`addPass`)
 
 Add sequential post-processing. Each `addPass` defines a texture name for subsequent shaders.
 

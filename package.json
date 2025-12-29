@@ -1,6 +1,6 @@
 {
   "name": "tinyshade",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A WebGPU shading utility",
   "main": "build/index.js",
   "types": "build/index.d.ts",

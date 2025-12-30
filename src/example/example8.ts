@@ -1,10 +1,25 @@
 import { TinyShade } from "../TinyShade";
+import { TinyShadeBake } from "../TinyShadeBake";
+import { TinyShadeRunner } from "../TinyShaderRunner";
 /*
 This path tracer is a WebGPU-optimized adaptation of the brilliant work by Mårten Rånge, specifically inspired by his "Festive Path Tracer." It translates his sophisticated GLSL Monte Carlo logic into a high-performance, branchless WebGPU compute architecture.
 Original GLSL Shader found at https://www.shadertoy.com/view/tfyczc
 */
 const start = async () => {
     const app = await TinyShade.create("canvas");
+
+
+
+    document.querySelector("canvas")?.addEventListener("click", async () => {
+             
+        //await TinyShadeBake.downloadAsModule(app, "graph.js"); // download the graph
+
+        console.info(TinyShadeRunner.toString());
+             
+        await TinyShadeBake.downloadSelfContained(app, "release_demo.html")
+
+
+    });
 
     (await app
         .setUniforms()

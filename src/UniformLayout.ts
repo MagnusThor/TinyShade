@@ -159,8 +159,7 @@ export class UniformLayout {
      */
     private inferType(value: UniformValue) {
         const sample = typeof value === "function" ? (value as UniformFunction)(0, 0) : value;
-        if (typeof sample === "number") return { type: "f32", size: 4, align: 4 };
-        
+        if (typeof sample === "number") return { type: "f32", size: 4, align: 4 };        
         const len = (sample as number[]).length;
         switch (len) {
             case 2: return { type: "vec2f", size: 8, align: 8 };

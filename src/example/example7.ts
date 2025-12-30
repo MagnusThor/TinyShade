@@ -1,5 +1,6 @@
 import { SWEET_DREAMS_WGSL, GPUSynth } from "../plugins/GPUSynth";
 import { TinyShade } from "../TinyShade";
+import { TinyShadeBake } from "../TinyShadeBake";
 
 const start = async () => {
     const app = await TinyShade.create("canvas");
@@ -159,6 +160,10 @@ const start = async () => {
     const startButton = document.querySelector("button");
     startButton!.addEventListener('click', () => {
         startButton!.classList.add('d-none');
+
+   
+
+
         app.run();
     }, { once: true });
 };

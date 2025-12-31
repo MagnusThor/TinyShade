@@ -12,10 +12,6 @@ const start = async () => {
 
     document.querySelector("canvas")?.addEventListener("click", async () => {
              
-        //await TinyShadeBake.downloadAsModule(app, "graph.js"); // download the graph
-
-        console.info(TinyShadeRunner.toString());
-             
         await TinyShadeBake.downloadSelfContained(app, "release_demo.html")
 
 

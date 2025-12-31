@@ -5,6 +5,25 @@ A minimalist, zero-boilerplate **WebGPU** framework designed for rapid prototypi
 
 TinyShade simplifies the complex WebGPU binding model into a chainable API. It handles **Ping-Ponging** (feedback textures), **Dynamic Compute Dispatching**, and **Uniform Management** automatically.
 
+## 📦 Installation
+Get up and running with the TinyShade development environment in seconds.
+
+### 1. Clone & Install
+
+```bash
+git clone https://github.com/MagnusThor/TinyShade.git
+cd TinyShade
+npm install
+
+```
+### 2. Start Development
+Launch the dev server with Hot Module Replacement (HMR).
+Bash
+
+```bash
+npm start
+```
+
 
 ## 🚀 Quick Start: The Stack
 
@@ -220,6 +239,155 @@ Each example is self-contained and intended to demonstrate a specific feature or
 Since we now use dynamic naming, it’s important to remember that your pass names become **global identifiers** in WGSL.
 
 > **Rule of Thumb:** Avoid naming your passes after WGSL reserved words (like `texture`, `var`, `fn`, `array`) or your own `addCommon` function names. A name like `fluid_sim` is always safer and more readable than just `fluid`.
+
+
+
+## 🧁 TinyShadeBake — Scene Serialization & Distribution
+
+**TinyShadeBake** is TinyShade’s _export and packaging layer_.  
+It captures a live `TinyShade` application and converts it into portable artifacts that can be shared, archived, or deployed without the original source code.
+
+At a high level, **Bake turns a running TinyShadeFlow into data**.
+
+### What It Does
+
+-   **Freezes the shader graph**
+    
+    -   Pass order
+    -   WGSL source (fully assembled & minified)
+    -   Uniform layout
+    -   Textures (base64-encoded)
+    -   Canvas size & workgroup configuration
+        
+-   **Exports in two formats**
+    
+    -   **Graph JSON** — for inspection, tooling, or custom loaders     
+    -   **Self-contained HTML demo** — zero external dependencies
+        
+
+### Self-Contained HTML Mode (Demoscene-Style)
+
+In its most powerful mode, TinyShadeBake:
+
+-   Packs the entire application runtime into a **compressed PNG**
+-   Embeds the PNG into a minimal HTML file
+-   Decodes and executes the payload at runtime via an `<img onload>` handler
+
+This enables:
+
+-   Single-file demos
+-   Offline playback
+-   CDN-friendly deployment
+-   Deterministic builds
+
+> The PNG is a _data container_, not a visual asset.
+
+### Baking a Scene (Code Example)
+
+Once your TinyShade scene is complete, baking it into a distributable artifact is a **single call**.
+
+#### Default Runner 
+
+```ts
+import { TinyShadeBake } from "./TinyShadeBake";
+
+// Exports a fully self-contained HTML demo
+await TinyShadeBake.downloadSelfContained(
+    app,
+    "release_demo.html"
+);
+
+```
+
+This produces:
+
+-   One `.html` file
+    
+-   No external assets
+    
+-   No runtime dependencies
+    
+-   Ready-to-share output
+    
+
+#### Custom Runner Injection
+
+For advanced use cases (instrumentation, alternate timing, profiling, future audio sync), you may inject a **custom TinyShadeRunner implementation**.
+
+```ts
+import { TinyShadeBake } from "./TinyShadeBake";
+import { TinyShadeRunner } from "./TinyShadeRunner";
+
+// Stringify a custom runner implementation
+const customRunnerSource = TinyShadeRunner.toString();
+
+await TinyShadeBake.downloadSelfContained(
+    app,
+    "release_demo.html",
+    customRunnerSource
+);
+
+```
+
+> The runner source is embedded directly into the baked payload and instantiated at runtime.  
+> This allows **full control over execution** while keeping the original scene untouched.
+
+
+## 🏃 TinyShadeRunner — Runtime Scene Executor
+
+**TinyShadeRunner** is the **minimal WebGPU runtime** responsible for executing a baked TinyShade scene.
+
+It does **not** construct shader graphs —  
+it _replays_ them.
+
+At a high level, **Runner turns data back into execution**.
+
+### Execution Model
+
+Every frame:
+
+```text
+Uniform Update
+↓
+Compute Passes (in order)
+↓
+Fragment Passes (with feedback)
+↓
+Main Pass → Canvas` 
+```
+No branching.  
+No scheduling logic.  
+No graph evaluation.
+
+The runner assumes the graph is **already correct**.
+
+### Key Design Goals
+
+-   **Zero authoring complexity**
+-   **Deterministic playback**
+-   **Minimal runtime surface**
+-   **No dependency on TinyShade itself**
+- 
+This separation allows TinyShade to remain a **creative tool**, while TinyShadeRunner becomes a **tiny, embeddable player**.
+
+## 🔁 Bake + Run: The Complete Lifecycle
+
+```text
+`TinyShade (Authoring)
+        ↓
+TinyShadeBake (Freeze & Pack)
+        ↓
+TinyShadeRunner (Replay & Execute)` 
+```
+This split enables:
+
+-   Live coding → frozen artifacts    
+-   Large authoring API → tiny runtime    
+-   Creative iteration → production delivery    
+
+Audio support is intentionally omitted from the current runner, as synchronization strategies are **highly production-dependent** and will be introduced in a future release.
+
+---
 
 
 ## 🥂 Special Thanks & Credits

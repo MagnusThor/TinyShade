@@ -145,5 +145,4 @@ dist
 
 
 build
-webpack.config.js
 typedoc.json

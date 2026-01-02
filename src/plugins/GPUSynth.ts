@@ -264,3 +264,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
     output[idx] = clamp((sound * 0.4) + (kick * 0.5), -1.0, 1.0);
 }`
+
+
+

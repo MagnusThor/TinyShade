@@ -1,18 +1,26 @@
-import { SWEET_DREAMS_WGSL, GPUSynth } from "../plugins/GPUSynth";
+
+import { GPUSynth } from "../plugins/GPUSynth";
+;
 import { TinyShade } from "../TinyShade";
 import { TinyShadeBake } from "../TinyShadeBake";
 import { TinyShadeRunner } from "../TinyShaderRunner";
+import { DARKNESS_END_OF_TIME_WGSL } from "./music/PCrushSongs/DARKNESS_END_OF_TIME_WGSL";
+import { ALCHEMIST_LAB_WGSL } from "./music/PCrushSongs/ALCHEMIST_LAB_WGSL";
+import { THE_SHORES_WGSL } from "./music/PCrushSongs/THE_SHORES_WGSL";
+import { DEEP_HORIZON_WGSL } from "./music/PCrushSongs/DEEP_HORIZON_WGSL";
+import { TRAVELERS_HORIZON_WGSL } from "./music/PCrushSongs/TRAVELERS_HORIZON_WGSL";
+import { SLICE_ME_NICE_WGSL } from "./music/PCrushSongs/SLICE_ME_NICE_WGSL";
 
 const start = async () => {
     const app = await TinyShade.create("canvas");
-    const audio = new GPUSynth(app.device, SWEET_DREAMS_WGSL);
+    const audio = new GPUSynth(app.device,SLICE_ME_NICE_WGSL);
 
     app.canvas.addEventListener("click", async () => {
 
         await TinyShadeBake.downloadSelfContained(app, "demo.html", TinyShadeRunner.toString(),
             {
                 code: GPUSynth.toString(),
-                data: SWEET_DREAMS_WGSL,
+                data: SLICE_ME_NICE_WGSL,
                 activator: []
             }
         );

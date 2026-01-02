@@ -202,7 +202,20 @@ app.addAudio(mySynth) // u.time is now driven by the audio clock
 
 ```
 
-## Examples
+### 🖥️🎶 GPU Music from PCrush
+
+My dear friend PCrush (Peter C) and co-developer of GPUSynth created several example tracks for GPUSynth. These can be found in the following folder:
+
+[src/example/music/PCrushSongs/](src/example/music/PCrushSongs/)
+
+
+>Note: PCrush forked my old repository
+>https://github.com/MagnusThor/demolishedAudio
+>and significantly improved it, modernizing the codebase and adapting it toward a more WebGPU / WGSL–style architecture.
+
+## Various Examples on TinyShade
+
+
 
 You can try the live examples here:  
 [TinyShade Examples](https://magnusthor.github.io/TinyShade/public/)
@@ -215,7 +228,6 @@ The source code for each example can be found in:
 
 ```python  
 Each example is self-contained and intended to demonstrate a specific feature or rendering technique.
-
 ```
 
 
@@ -390,6 +402,8 @@ Audio support is intentionally omitted from the current runner, as synchronizati
 ---
 
 
+
+
 ## 🥂 Special Thanks & Credits
 TinyShade stands on the shoulders of giants in the creative coding community:
 
@@ -399,4 +413,68 @@ TinyShade stands on the shoulders of giants in the creative coding community:
 
 ---    
 
-_Magnus Thor - December 2025_
+
+That is an ambitious and logical next step. Moving from a **linear chain** to a **Directed Acyclic Graph (DAG)** will allow for much higher performance, as independent passes (like two different post-process filters or parallel simulation steps) can be dispatched to the GPU simultaneously or packed into the same command buffer more efficiently.
+
+Here is a proposed **"Planned Features"** section to include in your README.
+
+---
+
+That sounds like a perfect, intuitive "low-friction" design. By making the dependency implicit (all prior passes) but allow for explicit overrides with `.dependsOn()`, you provide the power of a full Graph without forcing the user to map every single edge for simple projects.
+
+Here is the updated **Roadmap** section for the README, specifically detailing this logic.
+
+---
+
+## 🗺️ Roadmap: v2 Semi-Graph & Live-Editor Ecosystem
+I'm  currently architecting the next evolution of TinyShade, moving from a linear execution chain to a **Programmatically Defined Semi-Graph**.
+
+### 1. Parallel Pass Execution (The "Smart-DAG")
+
+TinyShade v2 will treat your pipeline as a **Directed Acyclic Graph (DAG)**. To keep the API minimalist, we follow a "Convention over Configuration" approach:
+
+* **Implicit Dependency (The Default):** If you don't specify anything, a pass automatically depends on **all prior passes** in the chain. This maintains the current linear "Stack" behavior.
+* **Explicit Dependency (`.dependsOn()`):** You can break the linear chain to create parallel branches.
+
+```ts
+// Example of Parallel Execution v2
+const simA = app.addCompute("physics", shaderA);
+const simB = app.addCompute("fluid", shaderB);
+
+// simB does NOT wait for simA; they run in parallel on the GPU
+simB.dependsOn([]); 
+
+// Final pass waits for both parallel branches
+app.main(mainShader).dependsOn([simA, simB]);
+
+```
+
+### 2. Why this matters for Performance
+
+By defining independent branches, TinyShade can:
+
+* **Merge Command Encoders:** Group parallel tasks into a single submission, significantly reducing CPU-to-GPU overhead.
+* **Overlap Compute & Fragment:** If a fragment pass doesn't depend on a concurrent compute pass, the GPU can overlap their execution (Asynchronous Compute), filling more of the GPU's hardware units simultaneously.
+
+### 3. 🛰️ TinyShade Satellite (Live-Editor Plugin)
+
+A dedicated "Sidecar" application that hooks into the TinyShade Graph via HMR.
+
+* **Live Node Editing:** Click any node in the graph (Compute, Fragment, or Atomic) and edit its WGSL code. The Satellite app hot-swaps the pipeline without losing the current GPU state.
+* **Visual Debugging:** Tap into the graph to see a real-time preview of intermediate textures—perfect for debugging multi-pass "Atomic Splatting" or complex feedback loops.
+* **State Locking:** Change logic while the simulation is running; the buffers and textures stay intact, allowing you to see the effect of your code changes on live data.
+
+---
+
+## ⚡ Technical Architecture ( as is )
+
+* **Atomic Pass Orchestration:** Sequential state machine logic with zero-latency Compute-to-Render handover.
+* **Recursive Temporal Buffers:** Automatic Ping-Ponging via `prev_<name>` injections.
+* **Adaptive Dispatch:** Workgroup topology calculated based on hardware limits.
+* **Sample-Locked Sync:** `IAudioPlugin` support for phase-perfect GPU Music.
+* **Vertex-less Geometry:** Triangle-index math for full-screen rendering without vertex buffers.
+
+---
+
+*Magnus Thor - December 2025*
+

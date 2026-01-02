@@ -1,8 +1,37 @@
+import { IAudioPlugin } from "./plugins/IAudioPlugin";
 import { TinyShade, IPass } from "./TinyShade";
+
+
+export interface ITinyShadeGraph {
+    canvasSize: { width: number, height: number },
+    uniforms: { byteSize: number, struct: string },
+    textures: { name: string, data: string }[],
+    passes: {
+        name: string,
+        type: 'compute' | 'fragment',
+        shader: string,
+        storageBufferSize?: number,
+        isAtomic?: boolean,
+        isMain?: boolean
+    }[],
+    workgroupSize: string,
+    common: string
+    audio?: IBakeAudio
+}
+
+export interface IBakeAudio {
+
+    code: string,
+    activator: unknown[], // ? ctor(a,b)
+    data: any
+
+}
+
 /**
  * TinyShadeBake handles the serialization and distribution of a TinyShade application.
  * It provides methods to export the live shader graph as a minified JSON file or 
  * as a self-contained, pixel-packed HTML application. */
+
 export class TinyShadeBake {
     /**
      * Captures the current TinyShade state and triggers a download of a self-executing HTML file.
@@ -12,14 +41,25 @@ export class TinyShadeBake {
      * @param runnerSource - The stringified source of the TinyShadeRunner class. 
      * If null, it attempts to fetch the source from 'assets/runnerCode.js'.
      */
-    static async downloadSelfContained(app: TinyShade, filename: string = "demo.html", runnerSource?: string) {
+    static async downloadSelfContained(app: TinyShade, filename: string = "demo.html", runnerSource?: string,
+        audio?: IBakeAudio
+
+
+    ) {
         const baker = new TinyShadeBake();
         const graph = await baker.collectGraphData(app);
 
+        if (audio) {
+            graph.audio = audio;
+
+        }
+
         if (!runnerSource) {
             runnerSource = await fetch("assets/runnerCode.js").then(r => r.text());
+            console.log("Using default runner code")
         } else {
             runnerSource = runnerSource.trim();
+            console.log("Using custom runner code");
         }
 
         let cleanRunner = runnerSource!;
@@ -31,23 +71,34 @@ export class TinyShadeBake {
 
         const g = JSON.parse(JSON.stringify(graph));
         g.passes.forEach((p: any) => p.shader = baker.minify(p.shader));
+        const hasAudio = !!g.audio;
 
         const js = `(async()=>{
-            const g=${JSON.stringify(g)};
-            ${cleanRunner};
-            const c=document.createElement('canvas');
-            c.id='w';c.width=${g.canvasSize.width};c.height=${g.canvasSize.height};
-            c.style="max-width: 100vw;max-height: 100vh;width: 100vw;height: auto;aspect-ratio: 16 / 9;";
-            document.body.appendChild(c);
-            const r=new TinyShadeRunner(c,g);
-            await r.init();
-            r.run();
+const g=${JSON.stringify(g)};
+${cleanRunner};
+
+const c=document.createElement('canvas');
+c.width=${g.canvasSize.width};
+c.height=${g.canvasSize.height};
+c.style='width:100vw;height:100vh;display:block;';
+document.body.appendChild(c);
+
+const r=new TinyShadeRunner(c,g);
+await r.init();
+
+        ${hasAudio ? `
+        const b=document.createElement('button');
+        b.textContent='RUN';
+        b.style='position:fixed;inset:0;margin:auto;font-size:4vmin;border:0';
+        document.body.appendChild(b);
+        b.onclick=()=>{b.remove();r.run()};
+        ` : `r.run()`}
         })()`;
 
         const payload = new TextEncoder().encode(js);
         const pngBase64 = await baker.generatePNG(payload);
 
-        const html = `<!DOCTYPE html><html><body style="margin:0;background:#000;overflow:hidden">
+        const html = `<html><body style="margin:0;background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center;">
             <img src="${pngBase64}" style="display:none" onload="
                 (function(i){
                     var c=document.createElement('canvas'),
@@ -59,7 +110,6 @@ export class TinyShadeBake {
                     (0,eval)(b);
                 })(this);
             "></body></html>`;
-
 
         baker.triggerDownload(new Blob([html], { type: "text/html" }), filename);
 
@@ -80,6 +130,7 @@ export class TinyShadeBake {
         graph.passes.forEach((p: any) => p.shader = baker.minify(p.shader));
         if (graph.common) graph.common = baker.minify(graph.common);
 
+
         const json = JSON.stringify(graph);
         baker.triggerDownload(new Blob([json], { type: "application/json" }), filename);
     }
@@ -92,7 +143,11 @@ export class TinyShadeBake {
         setTimeout(() => URL.revokeObjectURL(url), 100);
     }
 
-    private async collectGraphData(app: TinyShade): Promise<any> {
+    static async getGraphData(app: TinyShade): Promise<ITinyShadeGraph> {
+        return new TinyShadeBake().collectGraphData(app);
+    }
+
+    private async collectGraphData(app: TinyShade): Promise<ITinyShadeGraph> {
         const internalApp = app as any;
         const bakedTextures = [];
         const sources = internalApp.textureSources;

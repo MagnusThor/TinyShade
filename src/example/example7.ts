@@ -1,10 +1,23 @@
 import { SWEET_DREAMS_WGSL, GPUSynth } from "../plugins/GPUSynth";
 import { TinyShade } from "../TinyShade";
 import { TinyShadeBake } from "../TinyShadeBake";
+import { TinyShadeRunner } from "../TinyShaderRunner";
 
 const start = async () => {
     const app = await TinyShade.create("canvas");
     const audio = new GPUSynth(app.device, SWEET_DREAMS_WGSL);
+
+    app.canvas.addEventListener("click", async () => {
+
+        await TinyShadeBake.downloadSelfContained(app, "demo.html", TinyShadeRunner.toString(),
+            {
+                code: GPUSynth.toString(),
+                data: SWEET_DREAMS_WGSL,
+                activator: []
+            }
+        );
+    }
+    );
 
     (await app
         .addAudio(audio)
@@ -160,10 +173,6 @@ const start = async () => {
     const startButton = document.querySelector("button");
     startButton!.addEventListener('click', () => {
         startButton!.classList.add('d-none');
-
-   
-
-
         app.run();
     }, { once: true });
 };

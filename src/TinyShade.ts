@@ -84,7 +84,9 @@ export class TinyShade {
 
     private constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
-        this.uniforms = new UniformLayout([this.canvas.width, this.canvas.height, window.devicePixelRatio]);
+        const dpr = window.devicePixelRatio || 1;
+        this.uniforms = new UniformLayout([this.canvas.width*dpr, this.canvas.height*dpr, dpr]);
+    
     }
 
 
@@ -105,7 +107,6 @@ export class TinyShade {
     private async initWebGPU() {
         const adapter = await navigator.gpu?.requestAdapter();
         if (!adapter) throw "WebGPU not supported";
-
         const features: GPUFeatureName[] = [];
         if (adapter.features.has('bgra8unorm-storage')) features.push('bgra8unorm-storage');
         if (adapter.features.has('timestamp-query')) features.push('timestamp-query');

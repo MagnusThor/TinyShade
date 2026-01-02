@@ -12,7 +12,7 @@ const start = async () => {
 
     document.querySelector("canvas")?.addEventListener("click", async () => {
              
-        await TinyShadeBake.downloadSelfContained(app, "release_demo.html")
+        await TinyShadeBake.downloadSelfContained(app, "release_demo.html",TinyShadeRunner.toString());
 
 
     });

@@ -3,6 +3,10 @@ import { TinyShade } from "../TinyShade";
 document.addEventListener("DOMContentLoaded", async () => {
     const app = await TinyShade.create("canvas");
 
+    const dpr = window.devicePixelRatio || 1;
+    app.canvas.width = window.innerWidth * dpr;
+    app.canvas.height = window.innerHeight * dpr;
+
     const COUNT = 1_000_000;
     const PHYSICS_SIZE = COUNT * 4; 
     const HEATMAP_SIZE = app.canvas.width * app.canvas.height;

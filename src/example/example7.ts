@@ -4,12 +4,9 @@ import { GPUSynth } from "../plugins/GPUSynth";
 import { TinyShade } from "../TinyShade";
 import { TinyShadeBake } from "../TinyShadeBake";
 import { minifyJS } from "../helpers/minifyJS";
-import { TinyShadeRunner } from "../TinyShaderRunner";
-import { DARKNESS_END_OF_TIME_WGSL } from "./music/PCrushSongs/DARKNESS_END_OF_TIME_WGSL";
-import { ALCHEMIST_LAB_WGSL } from "./music/PCrushSongs/ALCHEMIST_LAB_WGSL";
-import { THE_SHORES_WGSL } from "./music/PCrushSongs/THE_SHORES_WGSL";
-import { DEEP_HORIZON_WGSL } from "./music/PCrushSongs/DEEP_HORIZON_WGSL";
 import { SLICE_ME_NICE_WGSL } from "./music/PCrushSongs/SLICE_ME_NICE_WGSL";
+import RunnerSource from "../TinyShaderRunner.ts?raw";
+import SynthSource from "../plugins/GPUSynth.ts?raw";
 
 const start = async () => {
     const app = await TinyShade.create("canvas");
@@ -18,13 +15,14 @@ const start = async () => {
     app.canvas.addEventListener("click", async () => {
 
 
-        const minifiedRunnerCode = await minifyJS(TinyShadeRunner.toString());
+        const minifiedRunnerCode = await minifyJS(RunnerSource);
+
                 
         console.info(`Runner size ${minifiedRunnerCode.code!.length} bytes (${(minifiedRunnerCode.code!.length / 1024).toFixed(2)} KB)`)
 
         await TinyShadeBake.downloadSelfContained(app, "demo.html", minifiedRunnerCode.code!,
             {
-                code: GPUSynth.toString(),
+                code: (await minifyJS(SynthSource)).code!,
                 data: SLICE_ME_NICE_WGSL,
                 activator: []
             }

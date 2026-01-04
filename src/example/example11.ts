@@ -8,6 +8,9 @@ import { EPIC_LONG_WGSL_MIN } from "./music/PCrushSongs/EPIC_LONG_WGSL";
 import shader from './wgsl/example11-compute0.min.wgsl';
 
 
+import RunnerSource from "../TinyShaderRunner.ts?raw";
+import SynthSource from "../plugins/GPUSynth.ts?raw";
+
 document.addEventListener("DOMContentLoaded", async () => {
     const app = await TinyShade.create("canvas");
 
@@ -16,13 +19,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     document.querySelector("canvas")!.addEventListener("click", async () => {
         
-          const minifiedRunnerCode = await minifyJS(TinyShadeRunner.toString());
+          const minifiedRunnerCode = await minifyJS(RunnerSource);
                         
                 console.info(`Runner size ${minifiedRunnerCode.code!.length} bytes (${(minifiedRunnerCode.code!.length / 1024).toFixed(2)} KB)`)
         
                 await TinyShadeBake.downloadSelfContained(app, "demo.html", minifiedRunnerCode.code!,
                     {
-                        code: (await minifyJS(GPUSynth.toString())).code!,
+                        code: (await minifyJS(SynthSource)).code!,
                         data: EPIC_LONG_WGSL_MIN,
                         activator: []
                     }

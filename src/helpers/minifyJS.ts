@@ -14,5 +14,21 @@ export const minifyJS = async (
     code: string,
     config?: MinifyOptions
 ) => {
-    return await jsMinify(code, config || { sourceMap: true });
+    return await jsMinify(cleanForBaking(code), config || { sourceMap: true });
 };
+
+
+/**
+ * Cleans a stringified class of CommonJS boilerplate
+ * so it can run directly in a <script> tag.
+ */
+function cleanForBaking(code:string) {
+    return code
+        .replace(/"use strict";/g, "")
+        .replace(/Object\.defineProperty\(exports,.*?\);/g, "")
+        .replace(/exports\..*?\s*=\s*/g, "")
+        .replace(/void 0;/g, "")
+        // Optional: Remove comments to save space in the Bake
+        .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "") 
+        .trim();
+}

@@ -57,6 +57,10 @@ module.exports = (env, argv) => {
                     test: /\.wgsl$/,
                     type: "asset/source", // inlines WGSL as string
                 },
+                {
+                    resourceQuery: /raw/,
+                    type: 'asset/source',
+                },
             ],
         },
 

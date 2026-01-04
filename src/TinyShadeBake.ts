@@ -1,7 +1,22 @@
+
 import { IAudioPlugin } from "./plugins/IAudioPlugin";
 import { TinyShade, IPass } from "./TinyShade";
 
-
+/**
+ * ITinyShadeGraph
+ *
+ * Declarative description of a TinyShade render / compute graph.
+ * This structure is typically produced by a bake or compile step
+ * and consumed by {@link TinyShadeRunner}.
+ *
+ * It defines:
+ * - Canvas and render target sizes
+ * - Global uniforms layout
+ * - Texture assets
+ * - Ordered render / compute passes
+ * - Shared shader code and workgroup configuration
+ * - Optional audio synthesis integration
+ */
 export interface ITinyShadeGraph {
     canvasSize: { width: number, height: number },
     uniforms: { byteSize: number, struct: string },
@@ -19,12 +34,20 @@ export interface ITinyShadeGraph {
     audio?: IBakeAudio
 }
 
+/**
+ * IBakeAudio
+ *
+ * Describes a baked audio module that can be dynamically
+ * instantiated and driven alongside the render graph.
+ *
+ * The audio code is evaluated at runtime and is expected
+ * to expose a constructor (e.g. `GPUSynth`) compatible
+ * with {@link IAudioPlugin}.
+ */
 export interface IBakeAudio {
-
     code: string,
     activator: unknown[], // ? ctor(a,b)
     data: any
-
 }
 
 /**
@@ -128,6 +151,10 @@ await r.init();
 
         // Minify shaders before export
         graph.passes.forEach((p: any) => p.shader = baker.minify(p.shader));
+
+  
+
+
         if (graph.common) graph.common = baker.minify(graph.common);
 
 

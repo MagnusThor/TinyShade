@@ -313,12 +313,9 @@ await TinyShadeBake.downloadSelfContained(
 
 This produces:
 
--   One `.html` file
-    
--   No external assets
-    
--   No runtime dependencies
-    
+-   One `.html` file    
+-   No external assets    
+-   No runtime dependencies    
 -   Ready-to-share output
     
 
@@ -402,7 +399,28 @@ Audio support is intentionally omitted from the current runner, as synchronizati
 ---
 
 
+## Scripts overview
 
+| Command                   | Action               | Description |
+|---------------------------|----------------------|-------------|
+| `npm run build`           | `tsc`                | Runs the TypeScript Compiler to convert `.ts` files into `.js` based on your `tsconfig.json`. |
+| `npm run prepublishOnly`  | `npm run build`      | A lifecycle hook that ensures your code is compiled before running `npm publish`, preventing uncompiled or broken releases. |
+| `npm run start`           | `webpack serve ...`  | Launches a local development server (typically at `localhost:8080`) with live reloading and unoptimized code for debugging. |
+| `npm run start-prod`      | `webpack serve ...`  | Similar to `start`, but simulates a production environment with minification and optimized assets. |
+| `npm run build-examples`  | `webpack ...`        | Runs a one-time production build of the project/examples, outputting static files (usually to `dist/`). |
+| `npm run wgsl:minify`     | `node scripts/...`   | Custom utility script that minifies WGSL (WebGPU Shading Language) files to reduce size or obfuscate shader code. |
+
+
+### ⚡ The WGSL Shrinker (Utility Overview)
+The `wgsl:minify script` is a specialized build-step utility designed for WebGPU workflows.
+
+Recursive Processing: It scans the `src/` directory for any .wgsl files, including those nested deep in subfolders.
+
+Clean & Compress: It strips out single-line (//) and multi-line (/* */) comments and collapses redundant whitespace into a single space. 
+
+Artifact Creation: For every source.wgsl, it generates a source.min.wgsl.
+
+>Purpose: This reduces the final "Bake" payload size (essential for the PNG-encoded self-contained demos) and provides a basic layer of code obfuscation for shared shaders.
 
 ## 🥂 Special Thanks & Credits
 TinyShade stands on the shoulders of giants in the creative coding community:
@@ -416,13 +434,9 @@ TinyShade stands on the shoulders of giants in the creative coding community:
 
 That is an ambitious and logical next step. Moving from a **linear chain** to a **Directed Acyclic Graph (DAG)** will allow for much higher performance, as independent passes (like two different post-process filters or parallel simulation steps) can be dispatched to the GPU simultaneously or packed into the same command buffer more efficiently.
 
-Here is a proposed **"Planned Features"** section to include in your README.
-
 ---
 
 That sounds like a perfect, intuitive "low-friction" design. By making the dependency implicit (all prior passes) but allow for explicit overrides with `.dependsOn()`, you provide the power of a full Graph without forcing the user to map every single edge for simple projects.
-
-Here is the updated **Roadmap** section for the README, specifically detailing this logic.
 
 ---
 

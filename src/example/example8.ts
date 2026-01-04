@@ -1,9 +1,6 @@
 import { TinyShade } from "../TinyShade";
 import { TinyShadeBake } from "../TinyShadeBake";
 import { minifyJS } from "../helpers/minifyJS";
-import { TinyShadeRunner } from "../TinyShaderRunner";
-
-
 import RunnerSource from "../TinyShaderRunner.ts?raw";
 
 
@@ -17,15 +14,8 @@ const start = async () => {
 
 
     document.querySelector("canvas")?.addEventListener("click", async () => {
-
-
         const minifiedRunnerCode = await minifyJS(RunnerSource);
-        
-        console.info(`Runner size ${minifiedRunnerCode.code!.length} bytes (${(minifiedRunnerCode.code!.length / 1024).toFixed(2)} KB)`)
-
         await TinyShadeBake.downloadSelfContained(app, "release_demo.html",minifiedRunnerCode.code);
-
-
     });
 
     (await app

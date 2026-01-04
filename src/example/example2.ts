@@ -8,8 +8,6 @@ document.addEventListener("DOMContentLoaded", async () => {
          * COMPUTE PASS: Fractal Orbit Trap
          */
         .addCompute("computeTex0",/*wgsl*/`
-         const AA: i32 = 3;
-        const sqrt2_inv: f32 = 0.70710678118;
         ##WORKGROUP_SIZE
         //@compute @workgroup_size(8, 8, 1)
         fn main(@builtin(global_invocation_id) id: vec3u) {

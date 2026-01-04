@@ -1,220 +1,309 @@
-
 # 🌑 TinyShade
 
-A minimalist, zero-boilerplate **WebGPU** framework designed for rapid prototyping of compute-driven visuals, simulations, and multi-pass post-process effects.
+[![API Docs](https://img.shields.io/badge/API_Docs-TypeDoc-blue)](https://magnusthor.github.io/TinyShade/public/doc/)
 
-TinyShade simplifies the complex WebGPU binding model into a chainable API. It handles **Ping-Ponging** (feedback textures), **Dynamic Compute Dispatching**, and **Uniform Management** automatically.
+A minimalist, zero-boilerplate WebGPU framework designed for rapid prototyping of compute-driven visuals, simulations, and multi-pass post-process effects.
 
-## 📦 Installation
-Get up and running with the TinyShade development environment in seconds.
+TinyShade simplifies the complex WebGPU binding model into a chainable API. It handles **Ping-Ponging** (feedback textures), **Dynamic Compute Dispatching**, and **Intelligent Dependency Management** automatically.
 
-### 1. Clone & Install
+>💭*Think of TinyShade as the **WebGPU evolution of Shadertoy**—built for those who need more than just a fragment shader, but less than a 600KB engine.*"
+
+
+## ⚖️ A Tiny Footprint
+
+TinyShade is engineered for the **64k and 4k intro philosophy**. It provides a full-scale WebGPU orchestration layer with a footprint smaller than a typical favicon.
+
+| Component        | Size (Min/Gzip) | Strategy                                    |
+| ---------------- | --------------- | ------------------------------------------- |
+| TinyShade Core   | ~9 KB           | Tree-shaken dev-time graph manager          |
+| TinyShade Runner | ~4.5 KB         | Ultra-lean binary replay engine             |
+| Bake Output      | Compressed      | Frozen, minified, and packed final artifact |
+
+
+## 📦 Installation & Setup
 
 ```bash
+
+# Clone the repository
 git clone https://github.com/MagnusThor/TinyShade.git
-cd TinyShade
+
+# Install dependencies
 npm install
 
-```
-### 2. Start Development
-Launch the dev server with Hot Module Replacement (HMR).
-Bash
+# Start the development server
+npm run start
 
-```bash
-npm start
 ```
 
+## 🚀 Quick Start: Dependency-Aware Graph
 
-## 🚀 Quick Start: The Stack
-
-This example demonstrates the power of the full chain: loading external textures, sharing common math, running a compute simulation named "fluid", and rendering a final lit scene.
-
+TinyShade uses an intelligent chaining API. This example demonstrates a **branched DAG**: running two independent simulations and combining them in a final fragment pass.
 
 ```ts
+
 import { TinyShade } from "./TinyShade";
 
 const start = async () => {
-    const app = await TinyShade.create("canvas");
+  // 1. Initialize the WebGPU context
+  const app = await TinyShade.create("canvas");
 
-    (await app
-        // 1. Load assets once; accessible by name in all shader stages
-        .addTexture("matcap", "./textures/gold_matcap.jpg")
-        
-        // 2. Inject shared math automatically
-        .addCommon(`
-            fn sdfSphere(p: vec3f, s: f32) -> f32 { return length(p) - s; }
-        `)
-        
-        // 3. Compute Pass: Output is accessible in later stages as 'fluid'
-        .addCompute("fluid", `
-            fn main(@builtin(global_invocation_id) id: vec3u) {
-                textureStore(outTex, id.xy, vec4f(u.time % 1.0)); 
-            }
-        `)
-        
-        // 4. Main Pass: Final rendering using 'matcap' and 'fluid' textures
-        .main(`
-            @fragment fn main(in: VSOut) -> @location(0) vec4f {
-                let simData = textureSample(fluid, samp, in.uv).r;
-                let lit = textureSample(matcap, samp, in.uv).rgb * simData;
-                return vec4f(lit, 1.0);
-            }
-        `)
-    ).run();
+  (await app
+    .setUniforms()
+    
+    // 2. Implicit Dependency: Since 'deps' is omitted, 
+    // this pass is added to the linear stack by default.
+    .addCompute("physics", physicsWGSL)
+    
+    // 3. Explicit Empty Dependency: By passing [], we tell TinyShade 
+    // this pass depends on NOTHING. This allows the GPU to 
+    // potentially run "fluid" and "physics" in parallel.
+    .addCompute("fluid", fluidWGSL, 0, [])
+    
+    // 4. Multi-Dependency Main: The final fragment pass 
+    // explicitly requests the output textures from both prior passes.
+    .main(mainWGSL, ["physics", "fluid"])
+    
+  ).run(); // Start the render loop
 };
 
 start();
-
 ```
 
+### 💡 The "Omit" Rule (Convention over Configuration)
 
-## 📜 Shader Variables Reference
+In TinyShade, you only write `deps` when you want to be specific.
 
-| Variable Type | Source | Description |
-|--------------|--------|-------------|
-| `<name>` | any | setUniformsAccess any custom uniform defined in JS. |
-| `<name>` | texture_2d | addCompute The output texture of a named compute pass. |
-| `<name>_data` | array<u32> | addAtomicCompute The raw atomic buffer of a named atomic pass. |
-| `prev_<name>` | texture_2d | addPass The previous frame (feedback) of a named fragment pass. |
-| `outTex` | texture_storage | Internal The write-only target inside the active compute pass. |
-| `data` | atomic<u32> | addAtomicCompute Read/Write atomic buffer (active only within its own pass). |
-| `samp` | sampler | Internal A linear, filtering sampler ready to use globally. |
-| `data` | array<f32> | addCompute Storage buffer (active only if size > 0). |
+-   **Omit the `deps` argument:** The pass is "greedy"—it automatically binds **every prior pass** in the chain. This is the fastest way to build a post-processing stack.
+    
+-   **Pass an empty array `[]`:** The pass is "isolated"—it binds nothing but the global uniforms. This is the best way to optimize performance for independent compute tasks.
+    
+-   **Pass a specific array `["a", "b"]`:** The pass is "surgical"—it binds only the named resources you requested.
 
 
+## 🗺️ Smart-DAG Execution Model
+
+TinyShade treats your pipeline as a **Directed Acyclic Graph (DAG)** using a *Convention over Configuration* API.
+
+### 1. Implicit Dependency (Linear Default)
+
+If no dependency array is provided, a pass automatically sees **all prior passes**.
+
+### 2. Explicit Dependency (`deps`)
+
+TinyShade simplifies the complex WebGPU binding model through a **"Convention over Configuration"** approach. You only define dependencies when you need to optimize.
+
+### 1. Omit the `deps` argument (Linear Default)
+
+The pass is "greedy." It automatically binds **every prior pass** in the chain. This is the fastest way to build a classic post-processing stack where each layer builds on the last.
+
+### 2. Pass an empty array `[]` (Isolated)
+
+The pass is "isolated." It binds nothing but the global uniforms. Use this for independent tasks (like a noise generator or an independent physics sim) to maximize GPU occupancy.
+
+### 3. Pass a specific array `["a", "b"]` (Surgical)
+
+TinyShade generates a custom BindGroup containing **only** the requested resources. This keeps your shader code clean and reduces the performance overhead of binding unused textures.
+
+
+## 📜 Shader Variable Reference
+
+| Type         | Name           | Source     | Description                   |
+| ------------ | -------------- | ---------- | ----------------------------- |
+| `vec3f`      | `u.resolution` | Internal   | Width, height, DPR            |
+| `f32`        | `u.time`       | Internal   | Global clock (seconds)        |
+| `f32`        | `u.sceneId`    | Sequencer  | Active timeline segment       |
+| `f32`        | `u.progress`   | Sequencer  | 0–1 progress in current scene |
+| `f32`        | `u.flags`      | Sequencer  | Bitmask for event triggers    |
+| `texture_2d` | `<name>`       | addCompute | Output of named compute pass  |
+| `texture_2d` | `prev_<name>`  | addPass    | Previous-frame feedback       |
+| `sampler`    | `samp`         | Internal   | Global linear sampler         |
 
 ## 🧠 High-Level Pipeline Overview
 
-TinyShade is built around a **simple, linear execution model**:
+TinyShade is built around a **named execution model** that balances simplicity with surgical control:
 
-> **Data flows forward through a named chain of GPU passes — and each pass remembers its own past.**
+> **Data flows through a Directed Acyclic Graph (DAG) — where every pass can access the present and the past of its ancestors.**
 
 ### The Named Execution Flow
 
-Every frame, TinyShade executes your pipeline **exactly in the order you write it**. Because you name your passes, your shaders read like logic rather than indices:
+Every frame, TinyShade executes your pipeline **in the order it was defined**. By naming your passes, your shaders reference data via semantic names rather than opaque binding indices:
 
-```lua
-Uniforms ↓ "blur" (Compute) ↓ "bloom" (Fragment) ↓ main() → Canvas 
+-   **Greedy Access (Default):** If you omit `deps`, a pass can **see the output of every stage before it** automatically.
+    
+-   **Surgical Access (`deps`):** If you specify `deps`, the pass only binds the specific resources requested, reducing GPU overhead and enabling internal parallel optimizations.
+    
+```rs
+Uniforms 
+   ↓ 
+"sim_data" (Compute) 
+   ↓ 
+"post_fx" (Fragment) → sees ["sim_data"]
+   ↓ 
+main() → sees ["post_fx", "sim_data"] → Canvas
 
 ```
 
--   Each stage can **see the output of every stage before it** using the assigned name.
-    
--   Fragment passes also see **their own previous frame** by prefixing the name with `prev_`.
-    
+### Temporal Feedback (Ping-Ponging)
 
-### Temporal Feedback Is Built-In
+Temporal logic is a first-class citizen in TinyShade. Every fragment pass is automatically double-buffered. If you name a pass `"fx"`, TinyShade manages two textures behind the scenes:
 
-Every fragment pass automatically creates a "ping-pong" pair. If you name a pass `"feedback"`, TinyShade provides:
-
--   `feedback` → The texture you are writing to this frame.
+-   **`fx`**: The current texture being written (available to _subsequent_ passes).
     
--   `prev_feedback` → The texture as it looked in the previous frame.
+-   **`prev_fx`**: The texture as it looked in the previous frame (available to the _current_ pass).
     
 
-This makes effects like trails, accumulation, and cellular automata **natural and effortless**.
+This makes complex effects like **motion blur, temporal accumulation, and cellular automata** effortless to implement.
 
 
-## ⬛ Core API: Step-by-Step
+### 🧪 Best Practice: Atomic Heatmaps
 
-API Doumentation can be found here - [TinyShade documentation](https://magnusthor.github.io/TinyShade/public/doc/)
-
-### 1. Initialize
-
-Sets up the GPU context, detects hardware workgroup limits, and configures the canvas.
+When using `addAtomicCompute`, remember that the storage buffer persists. A common pattern is to have one pass "clear" the buffer (or use the `u.frame` index to offset) and a second pass "splat" data into it.
 
 TypeScript
 
+```ts
+// Clear/Reset pass (optional depending on shader logic)
+app.addCompute("clear", clearWGSL, 1, []);
+
+// Splatting pass
+app.addAtomicCompute("particles", splatWGSL, COUNT, ["clear"]);
 ```
+
+
+## ⬛ Core API
+
+TinyShade's API is designed to be declarative yet chainable. It eliminates the "Boilerplate Tax" of WebGPU by inferring BindGroups and Pipeline layouts from your graph structure.
+[![API Docs](https://img.shields.io/badge/API_Docs-TypeDoc-blue)](https://magnusthor.github.io/TinyShade/public/doc/)
+
+
+### 1. Initialize
+
+Initialize the WebGPU context and attach it to a canvas. This setup is asynchronous and handles adapter/device discovery internally.
+
+```ts
 const app = await TinyShade.create("canvas-id");
 ```
 
-### 2. Compute Engine (`addCompute`)
+### 2. Compute Pass
 
--   **1D Simulation (`size > 0`):** Perfect for particles. Provides the `data` buffer.
+Registers a GPU compute task. TinyShade automatically handles the creation of the output storage texture and calculates the dispatch workgroups based on your canvas size.
+
+```ts
+app.addCompute("particles", particlesWGSL, 1024, ["background_sim"]);
+);
+```
+
+### 3. Atomic Passes
+
+A specialized compute pass that pre-configures a storage buffer with `atomic<u32>` support. Essential for "Many-to-One" operations like splatting particles onto a grid or building heatmaps.
+
+```ts
+app.addAtomicCompute("heatmap", heatmapWGSL, PIXEL_COUNT, ["physics"]);
+```
+
+### Fragment Pass (Ping-Pong Managed)
+
+
+Registers a full-screen render pass. If a pass depends on itself (e.g., `["blur"]`), TinyShade automatically creates a **Ping-Pong** feedback loop, allowing you to sample `prev_blur` in your WGSL.
+
+```ts
+app.addPass("blur", blurWGSL, ["simulation"]);
+```
+
+
+## 🎬 Plugin System & Sequencer
+
+TinyShade uses a **Plug-and-Tick** architecture. Animation logic, timelines, and audio sync live in optional plugins.
+
+### TSSequencer
+
+```ts
+const seq = new TSSequencer(timeline, TOTAL_LENGTH_MS, 120, 4);
+await app.addSequencer(seq).run();
+```
+
+### IBakePlugin Interface
+
+```ts
+export interface IBakePlugin {
+  code: string;
+  activator: any[];
+  data: any;
+}
+```
+
+###  🎭 Frame-Locked Orchestration
+
+`TSSequencer` is built for synchronization. By integrating the sequencer, the framework drives your entire GPU pipeline through a unified uniform contract. Transition between scenes, modulate effects via `u.progress`, and trigger visual events using bitwise `u.flags`—all perfectly locked to the timeline.
+
+
+```ts
+ const app = await TinyShade.create("canvas");
     
--   **2D Generative (`size = 0`):** Dispatches across the screen resolution.
+    const L = 170000; 
+    const seq = new TSSequencer([], L, 120, 4);
+
+    const SS = [
+        [seq.getUnitsFromMs(1800, L), 0x4000, 1],
+        [seq.getUnitsFromBars(4, L),  0x4001, 2],
+        [seq.getUnitsFromMs(5000, L), 0x0000, 3],
+        [255, 0x0000, 0]
+    ];
+    seq.timeline = SS;
+
+    (await app
+        .addSequencer(seq)
+        .setUniforms().
+        //....
+``` 
+
+and within the `main` pass as an example you do
+
+```rust
+   @fragment fn main(in: VSOut) -> @location(0) vec4f {
     
+                let noise = textureSample(noise_source, samp, in.uv).r;
+                let color = textureSample(color_mask, samp, in.uv).rgb;
 
+                var finalColor = vec3f(0.0);
 
-```rust
-app.addCompute("particles", `
-    ##WORKGROUP_SIZE
-    fn main(@builtin(global_invocation_id) id: vec3u) {
-        data[id.x] += 0.01; 
-        textureStore(outTex, id.xy, vec4f(1.0));
-    }
-`);
+                var sId:f32 = u.sceneId;
 
-```
+                if (sId == 1.0) {
+                    finalColor = vec3f(noise);
+                } else if (sId == 2.0) {
+                    finalColor = color * noise;
+                } else if (sId == 3.0) {
+                    finalColor = mix(color * noise, 1.0 - (color * noise), u.progress);
+                } else {
+                    finalColor = vec3f(1.); // Idle state
+                }
 
-### 3. Atomic Scattering (`addAtomicCompute`)
-
-This specialized pass is designed for **Many-to-One** operations where multiple threads need to write to the same memory address safely (e.g., projection, heatmaps, splatting).
-
-```rust
-app.addAtomicCompute("heatmap", `
-    ##WORKGROUP_SIZE
-    fn main(@builtin(global_invocation_id) id: vec3u) {
-        let i = id.x;
-        let pos = physics_data[i]; // Reading from a previous pass
-        let coords = project_to_screen(pos);
-        
-        // Safely increment a pixel's energy value
-        atomicAdd(&data[coords.y * width + coords.x], 1u);
-    }
-`, PIXEL_COUNT);
-
-```
-
-> **When to use `addAtomicCompute`?**
-> -   **YES:** For "Splatting" (projecting 3D particles onto a 2D grid), creating density heatmaps, or histogram generation.
-> -   **NO:** For standard image processing or SDF rendering. Atomics introduce serialization overhead; only use them when thread collisions are a mathematical requirement.    
-
-
-_Note: `##WORKGROUP_SIZE` is replaced with hardware-optimized settings like `@workgroup_size(16, 16, 1)`._
-
-### 4. Multi-Pass Fragment (`addPass`)
-
-Add sequential post-processing. Each `addPass` defines a texture name for subsequent shaders.
-
-
-```rust
-app.addPass("blur", `
-    @fragment fn main(in: VSOut) -> @location(0) vec4f {
-        let current = textureSample(baseLayer, samp, in.uv);
-        let history = textureSample(prev_blur, samp, in.uv); // Automatic feedback!
-        return mix(current, history, 0.9);
-    }
-`);
+                return vec4f(finalColor, 1.0);
+            }
 
 ```
 
 
-## 🎹 Audio Integration (`addAudio`)
 
-TinyShade supports sample-accurate timing. By implementing `IAudioPlugin`, an engine (like `GPUSynth`) can drive the `u.time` uniform.
+## 🎹 Audio Integration (addAudio)
 
+TinyShade supports sample-accurate timing. By implementing IAudioPlugin, an engine (like GPUSynth) can drive the u.time uniform.
 
 ```ts
 app.addAudio(mySynth) // u.time is now driven by the audio clock
    .run();
-
 ```
 
 ### 🖥️🎶 GPU Music from PCrush
-
 My dear friend PCrush (Peter C) and co-developer of GPUSynth created several example tracks for GPUSynth. These can be found in the following folder:
 
 [src/example/music/PCrushSongs/](src/example/music/PCrushSongs/)
 
+>Note: PCrush forked my old repository https://github.com/MagnusThor/demolishedAudio and significantly improved it, modernizing the codebase and adapting it toward a more WebGPU / WGSL–style architecture.
 
->Note: PCrush forked my old repository
->https://github.com/MagnusThor/demolishedAudio
->and significantly improved it, modernizing the codebase and adapting it toward a more WebGPU / WGSL–style architecture.
 
 ## Various Examples on TinyShade
-
 
 
 You can try the live examples here:  
@@ -229,6 +318,82 @@ The source code for each example can be found in:
 ```python  
 Each example is self-contained and intended to demonstrate a specific feature or rendering technique.
 ```
+---
+
+## 🧁 TinyShadeBake & 4.5 KB Runner
+
+Bake freezes your live dependency graph into a **portable, replay-only artifact**.
+
+> "While standard WebGPU wrappers start at 100 KB+, TinyShade delivers a complete Compute/Fragment pipeline at ~4% of the size."
+
+### Baking Pipeline
+
+* **Entropic Optimization:** uniform + WGSL deduplication
+* **Shader Mangling:** aggressive minification
+* **Steganographic Packing:** app encoded into PNG RGB channels
+* **Self-Contained Bootloader:** single `.html` output
+
+### Size Comparison
+
+| Stage            | Raw Dev State | Baked & Packed |
+| ---------------- | ------------- | -------------- |
+| Framework/Runner | ~15 KB        | 4.5 KB         |
+| Shader Library   | 128 KB        | ~15 KB         |
+| **Total**        | **143 KB**    | **< 20 KB**    |
+
+### Baking an app (Code Example)
+
+Once your TinyShade scene/app  is complete, baking it into a distributable artifact is a **single call**.
+
+#### Default Runner 
+
+```ts
+import { TinyShadeBake } from "./TinyShadeBake";
+import RunnerSource from "../TinyShaderRunner.ts?raw";
+
+const minifiedRunnerCode = await minifyJS(RunnerSource);
+
+await TinyShadeBake.downloadSelfContained(app, "demo.html", minifiedRunnerCode.code!);
+
+```
+
+This produces:
+
+-   One `.html` file    
+-   No external assets    
+-   No runtime dependencies    
+-   Ready-to-share output
+-   Works offline
+    
+
+> The runner source is embedded directly into the baked payload and instantiated at runtime.  
+> This allows **full control over execution** while keeping the original scene untouched.
+
+
+
+## 🛠 Scripts Overview
+
+| Command                  | Action        | Description                                       |
+| ------------------------ | ------------- | ------------------------------------------------- |
+| `npm run build`          | `tsc`         | Compile TypeScript sources using `tsconfig.json`. |
+| `npm run prepublishOnly` | build hook    | Ensures compiled output before publishing.        |
+| `npm run start`          | dev server    | Launches webpack dev server with live reload.     |
+| `npm run start-prod`     | prod server   | Dev server simulating production build.           |
+| `npm run build-examples` | bundle        | Builds example projects to static output.         |
+| `npm run wgsl:minify`    | custom script | Minifies WGSL shaders for size and packing.       |
+
+---
+
+### ⚡ The WGSL Shrinker (Utility Overview)
+The `wgsl:minify script` is a specialized build-step utility designed for WebGPU workflows.
+
+Recursive Processing: It scans the `src/` directory for any .wgsl files, including those nested deep in subfolders.
+
+Clean & Compress: It strips out single-line (//) and multi-line (/* */) comments and collapses redundant whitespace into a single space. 
+
+Artifact Creation: For every source.wgsl, it generates a source.min.wgsl.
+
+>Purpose: This reduces the final "Bake" payload size (essential for the PNG-encoded self-contained demos) and provides a basic layer of code obfuscation for shared shaders.
 
 
 ## ⚡ Technical Architecture
@@ -242,241 +407,62 @@ Each example is self-contained and intended to demonstrate a specific feature or
 -   **Sample-Locked Synchronization**: By hijacking the uniform update loop with `IAudioPlugin`, the engine achieves sample-accurate phase alignment between visuals and audio. This eliminates the "clock drift" common in `requestAnimationFrame` and ensures every pixel update is chronologically locked to the audio sample clock.
     
 -   **Procedural Geometry Injection**: Utilizes a "Vertex-less" rendering technique. By generating Clip Space coordinates directly from `@builtin(vertex_index)`, it bypasses the entire Input Assembler stage, reducing memory bandwidth overhead and eliminating the need for CPU-side vertex buffers.
-    
-
-----------
-
-### 🚀 Developer Tip: Avoiding Name Collisions
-
-Since we now use dynamic naming, it’s important to remember that your pass names become **global identifiers** in WGSL.
-
-> **Rule of Thumb:** Avoid naming your passes after WGSL reserved words (like `texture`, `var`, `fn`, `array`) or your own `addCommon` function names. A name like `fluid_sim` is always safer and more readable than just `fluid`.
-
-
-
-## 🧁 TinyShadeBake — Scene Serialization & Distribution
-
-**TinyShadeBake** is TinyShade’s _export and packaging layer_.  
-It captures a live `TinyShade` application and converts it into portable artifacts that can be shared, archived, or deployed without the original source code.
-
-At a high level, **Bake turns a running TinyShadeFlow into data**.
-
-### What It Does
-
--   **Freezes the shader graph**
-    
-    -   Pass order
-    -   WGSL source (fully assembled & minified)
-    -   Uniform layout
-    -   Textures (base64-encoded)
-    -   Canvas size & workgroup configuration
-        
--   **Exports in two formats**
-    
-    -   **Graph JSON** — for inspection, tooling, or custom loaders     
-    -   **Self-contained HTML demo** — zero external dependencies
-        
-
-### Self-Contained HTML Mode (Demoscene-Style)
-
-In its most powerful mode, TinyShadeBake:
-
--   Packs the entire application runtime into a **compressed PNG**
--   Embeds the PNG into a minimal HTML file
--   Decodes and executes the payload at runtime via an `<img onload>` handler
-
-This enables:
-
--   Single-file demos
--   Offline playback
--   CDN-friendly deployment
--   Deterministic builds
-
-> The PNG is a _data container_, not a visual asset.
-
-### Baking a Scene (Code Example)
-
-Once your TinyShade scene is complete, baking it into a distributable artifact is a **single call**.
-
-#### Default Runner 
-
-```ts
-import { TinyShadeBake } from "./TinyShadeBake";
-
-// Exports a fully self-contained HTML demo
-await TinyShadeBake.downloadSelfContained(
-    app,
-    "release_demo.html"
-);
-
-```
-
-This produces:
-
--   One `.html` file    
--   No external assets    
--   No runtime dependencies    
--   Ready-to-share output
-    
-
-#### Custom Runner Injection
-
-For advanced use cases (instrumentation, alternate timing, profiling, future audio sync), you may inject a **custom TinyShadeRunner implementation**.
-
-```ts
-import { TinyShadeBake } from "./TinyShadeBake";
-import { TinyShadeRunner } from "./TinyShadeRunner";
-
-// Stringify a custom runner implementation
-const customRunnerSource = TinyShadeRunner.toString();
-
-await TinyShadeBake.downloadSelfContained(
-    app,
-    "release_demo.html",
-    customRunnerSource
-);
-
-```
-
-> The runner source is embedded directly into the baked payload and instantiated at runtime.  
-> This allows **full control over execution** while keeping the original scene untouched.
-
-
-## 🏃 TinyShadeRunner — Runtime Scene Executor
-
-**TinyShadeRunner** is the **minimal WebGPU runtime** responsible for executing a baked TinyShade scene.
-
-It does **not** construct shader graphs —  
-it _replays_ them.
-
-At a high level, **Runner turns data back into execution**.
-
-### Execution Model
-
-Every frame:
-
-```text
-Uniform Update
-↓
-Compute Passes (in order)
-↓
-Fragment Passes (with feedback)
-↓
-Main Pass → Canvas` 
-```
-No branching.  
-No scheduling logic.  
-No graph evaluation.
-
-The runner assumes the graph is **already correct**.
-
-### Key Design Goals
-
--   **Zero authoring complexity**
--   **Deterministic playback**
--   **Minimal runtime surface**
--   **No dependency on TinyShade itself**
-- 
-This separation allows TinyShade to remain a **creative tool**, while TinyShadeRunner becomes a **tiny, embeddable player**.
-
-## 🔁 Bake + Run: The Complete Lifecycle
-
-```text
-`TinyShade (Authoring)
-        ↓
-TinyShadeBake (Freeze & Pack)
-        ↓
-TinyShadeRunner (Replay & Execute)` 
-```
-This split enables:
-
--   Live coding → frozen artifacts    
--   Large authoring API → tiny runtime    
--   Creative iteration → production delivery    
 
 ---
 
 
-## Scripts overview
+## 📚 Resources & Learning
 
-| Command                   | Action               | Description |
-|---------------------------|----------------------|-------------|
-| `npm run build`           | `tsc`                | Runs the TypeScript Compiler to convert `.ts` files into `.js` based on your `tsconfig.json`. |
-| `npm run prepublishOnly`  | `npm run build`      | A lifecycle hook that ensures your code is compiled before running `npm publish`, preventing uncompiled or broken releases. |
-| `npm run start`           | `webpack serve ...`  | Launches a local development server (typically at `localhost:8080`) with live reloading and unoptimized code for debugging. |
-| `npm run start-prod`      | `webpack serve ...`  | Similar to `start`, but simulates a production environment with minification and optimized assets. |
-| `npm run build-examples`  | `webpack ...`        | Runs a one-time production build of the project/examples, outputting static files (usually to `dist/`). |
-| `npm run wgsl:minify`     | `node scripts/...`   | Custom utility script that minifies WGSL (WebGPU Shading Language) files to reduce size or obfuscate shader code. |
+* **[Full API Reference](https://magnusthor.github.io/TinyShade/public/doc)** – Auto-generated documentation for all classes, types, and methods.
+* **[Live Examples](https://magnusthor.github.io/TinyShade/public/)** – Interactive shaders and experiments.
 
 
-### ⚡ The WGSL Shrinker (Utility Overview)
-The `wgsl:minify script` is a specialized build-step utility designed for WebGPU workflows.
 
-Recursive Processing: It scans the `src/` directory for any .wgsl files, including those nested deep in subfolders.
+## 🗺️ Roadmap: The Future of TinyShade
 
-Clean & Compress: It strips out single-line (//) and multi-line (/* */) comments and collapses redundant whitespace into a single space. 
+The goal for TinyShade is to remain the leanest orchestrator in the WebGPU ecosystem while expanding the creative possibilities for GPGPU and demoscene productions.
 
-Artifact Creation: For every source.wgsl, it generates a source.min.wgsl.
+### 🏁 Phase 1: Performance & Core (Current Focus)
 
->Purpose: This reduces the final "Bake" payload size (essential for the PNG-encoded self-contained demos) and provides a basic layer of code obfuscation for shared shaders.
+-   [ ] **Dynamic Buffer Resizing**: Allow storage buffers to scale without re-initializing the entire pipeline.
+    
+-   [ ] **Smart BindGroup Caching**: Further optimize the Smart-DAG to reuse layouts across similar compute passes.
+    
+-   [ ] **Multi-Queue Execution**: Support for concurrent compute and render queues to maximize GPU occupancy.
+    
 
-## 🥂 Special Thanks & Credits
-TinyShade stands on the shoulders of giants in the creative coding community:
+### 🛠️ Phase 2: IDE & Tooling
 
-**Mårten Rånge**: Huge thanks for the "[Introduction to Path Tracers](https://github.com/MagnusThor/so-you-think-you-can-code-2025/blob/main/day08/readme.md)" article featured in the SYTYCC 2025 Advent Calendar. The logic for the path-tracing examples in this repo is ported directly from his masterful WGSL/WebGPU implementation.
+-   [ ] **VS Code Extension**: A "Live Preview" extension using Webview Panels to run the 4.5KB Runner directly inside your editor with hot-reloading.
+    
+-   [ ] **TinyShade Live (CodeMirror)**: An official web-based editor module that hooks into the app instance for real-time WGSL prototyping.
+    
+-   [ ] **Auto-Header Injection**: Improve the WGSL pre-processor to automatically inject `@group` and `@binding` based on the `.main(["deps"])` array.
+    
 
-**PCrush**: For the [GPUSynth architecture](https://github.com/MagnusThor/so-you-think-you-can-code-2025/blob/main/day04/readme.md). TinyShade’s audio integration and internal DSP logic are heavily inspired by and adapted from his work on GPU-based sound synthesis.
+### 🎨 Phase 3: Creative Quality of Life
 
+-   [ ] **Debug Visualizer**: A toggleable overlay to inspect the output of any intermediate compute pass (the "Heatmap View").
+    
+-   [ ] **Noise Library**: A built-in, tree-shakable collection of optimized WGSL noise functions (Simplex, Worley, FBM).
+    
+-   [ ] **Audio-Reactive Templates**: Ready-to-use boilerplate for linking `u.progress` and `u.flags` to `GPUSynth` transients.
+    
 
-## 🗺️ Roadmap: v2 Semi-Graph & Live-Editor Ecosystem
-I'm  currently architecting the next evolution of TinyShade, moving from a linear execution chain to a **Programmatically Defined Semi-Graph**.
+### 🧁 Phase 4: The "Intro" Ecosystem
 
-### 1. Parallel Pass Execution (The "Smart-DAG")
-
-TinyShade v2 will treat your pipeline as a **Directed Acyclic Graph (DAG)**. To keep the API minimalist, we follow a "Convention over Configuration" approach:
-
-* **Implicit Dependency (The Default):** If you don't specify anything, a pass automatically depends on **all prior passes** in the chain. This maintains the current linear "Stack" behavior.
-* **Explicit Dependency (`.dependsOn()`):** You can break the linear chain to create parallel branches.
-
-```ts
-// Example of Parallel Execution v2
-const simA = app.addCompute("physics", shaderA);
-const simB = app.addCompute("fluid", shaderB);
-
-// simB does NOT wait for simA; they run in parallel on the GPU
-simB.dependsOn([]); 
-
-// Final pass waits for both parallel branches
-app.main(mainShader).dependsOn([simA, simB]);
-
-```
-
-### 2. Why this matters for Performance
-
-By defining independent branches, TinyShade can:
-
-* **Merge Command Encoders:** Group parallel tasks into a single submission, significantly reducing CPU-to-GPU overhead.
-* **Overlap Compute & Fragment:** If a fragment pass doesn't depend on a concurrent compute pass, the GPU can overlap their execution (Asynchronous Compute), filling more of the GPU's hardware units simultaneously.
-
-### 3. 🛰️ TinyShade Satellite (Live-Editor Plugin)
-
-A dedicated "Sidecar" application that hooks into the TinyShade Graph via HMR.
-
-* **Live Node Editing:** Click any node in the graph (Compute, Fragment, or Atomic) and edit its WGSL code. The Satellite app hot-swaps the pipeline without losing the current GPU state.
-* **Visual Debugging:** Tap into the graph to see a real-time preview of intermediate textures—perfect for debugging multi-pass "Atomic Splatting" or complex feedback loops.
-* **State Locking:** Change logic while the simulation is running; the buffers and textures stay intact, allowing you to see the effect of your code changes on live data.
+-   [ ] **Advanced Mangler**: Integration with a specialized WGSL minifier that renames variables based on frequency for better Gzip/PNG compression.
+    
+-   [ ] **Headless Baking**: A CLI tool to "Bake" your `demo.html` directly from the terminal without opening a browser.
 
 ---
 
-## ⚡ Technical Architecture ( as is )
 
-* **Atomic Pass Orchestration:** Sequential state machine logic with zero-latency Compute-to-Render handover.
-* **Recursive Temporal Buffers:** Automatic Ping-Ponging via `prev_<name>` injections.
-* **Adaptive Dispatch:** Workgroup topology calculated based on hardware limits.
-* **Sample-Locked Sync:** `IAudioPlugin` support for phase-perfect GPU Music.
-* **Vertex-less Geometry:** Triangle-index math for full-screen rendering without vertex buffers.
+
+## 🥂 Credits
+
+* **Mårten Rånge** — Path tracing example & inspiration (SYTYCC 2025)
+* **PCrush** — GPUSynth & audio architecture
 
 ---
-
-*Magnus Thor - December 2025*
-
+**Magnus Thor**

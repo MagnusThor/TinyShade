@@ -1,59 +1,25 @@
 import { IAudioPlugin } from "./plugins/IAudioPlugin";
-import { ITinyShadeGraph } from "./TinyShadeBake";
+import { TSSequencer } from "./TSSequencer";
 
 /**
  * TinyShadeRunner
- *
- * Orchestrates execution of a TinyShade shader graph using WebGPU.
- * Responsible for:
- * - WebGPU device & canvas setup
- * - Pipeline and bind group layout creation
- * - Ping-pong texture management
- * - Uniform updates (resolution, aspect, time)
- * - Optional audio-driven time source
- * - Driving the render / compute loop
+ * Handles the execution of a baked TinyShade graph.
  */
 export class TinyShadeRunner {
-    /** WebGPU logical device */
     private d!: GPUDevice;
-
-    /** WebGPU canvas context */
     private c!: GPUCanvasContext;
-
-    /** Global uniform buffer shared across all passes */
     private u!: GPUBuffer;
-
-    /** Pipelines indexed by pass name */
     private p = new Map<string, GPURenderPipeline | GPUComputePipeline>();
-
-    /** Bind group layouts indexed by pass name */
     private l = new Map<string, GPUBindGroupLayout>();
-
-    /**
-     * Ping-pong textures per pass.
-     * - Compute passes typically use a single texture
-     * - Render passes use two textures for feedback
-     */
     private t = new Map<string, GPUTexture[]>();
-
-    /** Shared linear sampler for all texture sampling */
     private s!: GPUSampler;
-
-    /** Optional audio plugin driving time and sound synthesis */
     private a: IAudioPlugin | undefined;
 
-    /**
-     * @param h Target HTML canvas for rendering
-     * @param g Parsed TinyShade shader graph definition
-     */
-    constructor(private h: HTMLCanvasElement, private g: ITinyShadeGraph) { }
+    private q: TSSequencer | undefined;
 
-    /**
-     * Initializes WebGPU, audio (if present), pipelines, textures,
-     * bind group layouts, and shared GPU resources.
-     *
-     * Must be awaited before calling {@link run}.
-     */
+
+    constructor(private h: HTMLCanvasElement, private g: any) { }
+
     async init() {
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) throw new Error("WebGPU adapter not available");
@@ -61,85 +27,63 @@ export class TinyShadeRunner {
         this.d = await adapter.requestDevice();
         this.c = this.h.getContext("webgpu")!;
 
-        // Handle high-DPI displays
         const dpr = window.devicePixelRatio || 1;
         this.h.width = this.h.width * dpr;
         this.h.height = this.h.height * dpr;
 
-        /**
-         * Optional audio plugin initialization.
-         * Audio code is dynamically evaluated and expected
-         * to expose a GPUSynth-compatible class.
-         */
         if (this.g.audio) {
             const { code, data, activator } = this.g.audio;
+            const AudioClass = new Function(`${code}; return GPUSynth;`)();
+            this.a = new AudioClass(this.d, data, ...(activator ?? [])) as IAudioPlugin;
+        }
 
-            const AudioClass = new Function(
-                `${code}; return GPUSynth;`
-            )();
-
-            this.a = new AudioClass(
-                this.d,
-                data,
-                ...(activator ?? [])
-            ) as IAudioPlugin;
+        if (this.g.sequencer) {
+            const { code, data, activator } = this.g.sequencer;
+            const SeqClass = new Function(`${code}; return TSSequencer;`)();
+            this.q = new SeqClass(data.timeline, data.L, data.bpm, data.rowsPerBeat, ...(activator ?? []));
         }
 
         const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
         this.c.configure({
             device: this.d,
             format: presentationFormat,
-            usage: 16 // GPUTextureUsage.RENDER_ATTACHMENT
+            usage: GPUTextureUsage.RENDER_ATTACHMENT
         });
 
-        // Shared sampler for all shader passes
-        this.s = this.d.createSampler({
-            magFilter: 'linear',
-            minFilter: 'linear'
-        });
+        this.s = this.d.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 
-        // Global uniform buffer (resolution, aspect, time)
         this.u = this.d.createBuffer({
             size: this.g.uniforms.byteSize,
-            usage: 72 // UNIFORM | COPY_DST
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
 
-        /**
-         * Build textures, bind group layouts, and pipelines for each pass.
-         */
         for (const p of this.g.passes) {
             const size = [this.g.canvasSize.width, this.g.canvasSize.height];
 
-            // Allocate intermediate textures for non-main passes
-            if (p.type === 'compute' && !p.isMain) {
-                this.t.set(p.name, [
-                    this.d.createTexture({
-                        size,
-                        format: 'rgba8unorm',
-                        usage: 12 // STORAGE_BINDING | TEXTURE_BINDING
-                    })
-                ]);
-            } else if (!p.isMain) {
-                const create = () =>
-                    this.d.createTexture({
-                        size,
-                        format: "bgra8unorm",
-                        usage: 20 // RENDER_ATTACHMENT | TEXTURE_BINDING
-                    });
-
-                this.t.set(p.name, [create(), create()]);
+            if (!p.isMain) {
+                if (p.type === 'compute') {
+                    this.t.set(p.name, [
+                        this.d.createTexture({
+                            size,
+                            format: 'rgba8unorm',
+                            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+                        })
+                    ]);
+                } else {
+                    const create = () =>
+                        this.d.createTexture({
+                            size,
+                            format: "bgra8unorm",
+                            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+                        });
+                    this.t.set(p.name, [create(), create()]);
+                }
             }
 
-            /**
-             * Parse WGSL bindings to auto-generate bind group layouts.
-             * This avoids manual reflection metadata.
-             */
             const layoutEntries: GPUBindGroupLayoutEntry[] = [];
-            const bindingRegex =
-                /@binding\s*\(\s*(\d+)\s*\)\s+var\s*(?:<([^>]+)>)?\s*([\w\d_]+)/g;
-
+            const bindingRegex = /@binding\s*\(\s*(\d+)\s*\)\s+var\s*(?:<([^>]+)>)?\s*([\w\d_]+)/g;
             let match;
-            const visibility = p.type === 'compute' ? 4 : 2; // COMPUTE | FRAGMENT
+            const visibility = p.type === 'compute' ? GPUShaderStage.COMPUTE : GPUShaderStage.FRAGMENT;
 
             while ((match = bindingRegex.exec(p.shader)) !== null) {
                 const binding = parseInt(match[1]);
@@ -147,32 +91,19 @@ export class TinyShadeRunner {
                 const varName = match[3];
 
                 if (typeInfo.includes("uniform")) {
+                    layoutEntries.push({ binding, visibility, buffer: { type: 'uniform' } });
+                } else if (varName === "outTex") {
                     layoutEntries.push({
                         binding,
                         visibility,
-                        buffer: { type: 'uniform' }
+                        storageTexture: { format: 'rgba8unorm', access: 'write-only' }
                     });
-                } else if (typeInfo.includes("storage") || varName === "outTex") {
-                    layoutEntries.push({
-                        binding,
-                        visibility,
-                        storageTexture: {
-                            format: 'rgba8unorm',
-                            access: 'write-only'
-                        }
-                    });
+                } else if (typeInfo.includes("storage")) {
+                    layoutEntries.push({ binding, visibility, buffer: { type: 'storage' } });
                 } else if (varName === "samp") {
-                    layoutEntries.push({
-                        binding,
-                        visibility,
-                        sampler: { type: 'filtering' }
-                    });
+                    layoutEntries.push({ binding, visibility, sampler: { type: 'filtering' } });
                 } else {
-                    layoutEntries.push({
-                        binding,
-                        visibility,
-                        texture: { sampleType: 'float' }
-                    });
+                    layoutEntries.push({ binding, visibility, texture: { sampleType: 'float' } });
                 }
             }
 
@@ -180,55 +111,33 @@ export class TinyShadeRunner {
             this.l.set(p.name, layout);
 
             const mod = this.d.createShaderModule({ code: p.shader });
-            const pipelineLayout =
-                this.d.createPipelineLayout({ bindGroupLayouts: [layout] });
+            const pipelineLayout = this.d.createPipelineLayout({ bindGroupLayouts: [layout] });
 
-            // Create compute or render pipeline
             if (p.type === 'compute') {
-                this.p.set(
-                    p.name,
-                    this.d.createComputePipeline({
-                        layout: pipelineLayout,
-                        compute: { module: mod, entryPoint: 'main' }
-                    })
-                );
+                this.p.set(p.name, this.d.createComputePipeline({
+                    layout: pipelineLayout,
+                    compute: { module: mod, entryPoint: 'main' }
+                }));
             } else {
-                this.p.set(
-                    p.name,
-                    this.d.createRenderPipeline({
-                        layout: pipelineLayout,
-                        vertex: { module: mod, entryPoint: 'vs' },
-                        fragment: {
-                            module: mod,
-                            entryPoint: 'main',
-                            targets: [{
-                                format: p.isMain
-                                    ? presentationFormat
-                                    : "bgra8unorm"
-                            }]
-                        }
-                    })
-                );
+                this.p.set(p.name, this.d.createRenderPipeline({
+                    layout: pipelineLayout,
+                    vertex: { module: mod, entryPoint: 'vs' },
+                    fragment: {
+                        module: mod,
+                        entryPoint: 'main',
+                        targets: [{ format: p.isMain ? presentationFormat : "bgra8unorm" }]
+                    }
+                }));
             }
         }
     }
 
-    /**
-     * Creates a bind group for a specific pass and frame index.
-     *
-     * Handles:
-     * - Ping-pong texture selection
-     * - Cross-pass texture dependencies
-     * - Uniform and sampler bindings
-     *
-     * @param pass Shader graph pass definition
-     * @param writeIdx Current frame ping-pong index
-     */
+
     private createBindGroup(pass: any, writeIdx: number) {
         const layout = this.l.get(pass.name)!;
         const readIdx = 1 - writeIdx;
-
         const resources = new Map<string, GPUBindingResource>();
+
         resources.set("u", { buffer: this.u });
         resources.set("samp", this.s);
 
@@ -237,69 +146,66 @@ export class TinyShadeRunner {
             const texs = this.t.get(p.name)!;
 
             if (p.type === 'compute') {
-                if (p.name === pass.name)
+                if (p.name === pass.name) {
                     resources.set("outTex", texs[0].createView());
-
+                }
                 resources.set(p.name, texs[0].createView());
             } else {
-                if (p.name === pass.name) {
-                    resources.set(p.name, texs[readIdx].createView());
-                    resources.set(`prev_${p.name}`, texs[readIdx].createView());
-                } else {
-                    resources.set(p.name, texs[writeIdx].createView());
-                }
+                resources.set(p.name, texs[readIdx].createView());
+                resources.set(`prev_${p.name}`, texs[readIdx].createView());
             }
         }
 
-        // Match bindings based on WGSL source
         const entries: GPUBindGroupEntry[] = [];
-        const bindingRegex =
-            /@binding\s*\(\s*(\d+)\s*\)\s+var\s*(?:<([^>]+)>)?\s*([\w\d_]+)/g;
+        const bindingRegex = /@binding\s*\(\s*(\d+)\s*\)\s+var\s*(?:<([^>]+)>)?\s*([\w\d_]+)/g;
+
+        bindingRegex.lastIndex = 0;
 
         let match;
         while ((match = bindingRegex.exec(pass.shader)) !== null) {
             const binding = parseInt(match[1]);
-            const res = resources.get(match[3]);
-            if (res) entries.push({ binding, resource: res });
+            const varName = match[3];
+            const res = resources.get(varName);
+
+            if (res) {
+                entries.push({ binding, resource: res });
+            } else {
+                console.error(`Missing resource for @binding(${binding}) var ${varName}`);
+            }
         }
 
         return this.d.createBindGroup({ layout, entries });
     }
 
-    /**
-     * Starts the render loop.
-     *
-     * Uses:
-     * - Audio-driven time if available and playing
-     * - requestAnimationFrame otherwise
-     *
-     * This method does not return.
-     */
     run() {
         const audioPlugin = this.a;
         let frame = 0;
-
         if (audioPlugin) audioPlugin.play();
 
         const render = (now: number) => {
             frame++;
             const writeIdx = frame % 2;
+            const time = (audioPlugin && audioPlugin.isPlaying) ? audioPlugin.getTime() : now / 1000;
 
-            const useAudioTime =
-                audioPlugin && audioPlugin.isPlaying;
+            // Update Sequencer State
+            let sId = 0, sProg = 0, sFlags = 0;
+            if (this.q) {
+                const state = this.q.update(time);
+                sId = state.sceneId;
+                sProg = state.progress;
+                sFlags = state.flags;
+            }
 
-            const time = useAudioTime
-                ? audioPlugin!.getTime()
-                : now / 1000;
-
-            // [width, height, aspect, time]
             const uData = new Float32Array([
                 this.h.width,
                 this.h.height,
-                this.h.width / this.h.height,
-                time
+                window.devicePixelRatio || 1,
+                time ,
+                sId,
+                sProg,
+                sFlags
             ]);
-
+          
             this.d.queue.writeBuffer(this.u, 0, uData);
 
             const enc = this.d.createCommandEncoder();
@@ -309,14 +215,9 @@ export class TinyShadeRunner {
 
                 if (p.type === 'compute') {
                     const passEnc = enc.beginComputePass();
-                    passEnc.setPipeline(
-                        this.p.get(p.name) as GPUComputePipeline
-                    );
+                    passEnc.setPipeline(this.p.get(p.name) as GPUComputePipeline);
                     passEnc.setBindGroup(0, bg);
-                    passEnc.dispatchWorkgroups(
-                        Math.ceil(this.h.width / 16),
-                        Math.ceil(this.h.height / 16)
-                    );
+                    passEnc.dispatchWorkgroups(Math.ceil(this.h.width / 16), Math.ceil(this.h.height / 16));
                     passEnc.end();
                 } else {
                     const view = p.isMain
@@ -331,10 +232,7 @@ export class TinyShadeRunner {
                             clearValue: [0, 0, 0, 1]
                         }]
                     });
-
-                    passEnc.setPipeline(
-                        this.p.get(p.name) as GPURenderPipeline
-                    );
+                    passEnc.setPipeline(this.p.get(p.name) as GPURenderPipeline);
                     passEnc.setBindGroup(0, bg);
                     passEnc.draw(3);
                     passEnc.end();
@@ -344,7 +242,6 @@ export class TinyShadeRunner {
             this.d.queue.submit([enc.finish()]);
             requestAnimationFrame(render);
         };
-
         requestAnimationFrame(render);
     }
 }

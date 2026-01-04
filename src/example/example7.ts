@@ -10,16 +10,15 @@ import SynthSource from "../plugins/GPUSynth.ts?raw";
 
 const start = async () => {
     const app = await TinyShade.create("canvas");
-    const audio = new GPUSynth(app.device,SLICE_ME_NICE_WGSL);
+    const audio = new GPUSynth(app.device, SLICE_ME_NICE_WGSL);
 
     app.canvas.addEventListener("click", async () => {
 
 
         const minifiedRunnerCode = await minifyJS(RunnerSource);
 
-                
-        console.info(`Runner size ${minifiedRunnerCode.code!.length} bytes (${(minifiedRunnerCode.code!.length / 1024).toFixed(2)} KB)`)
 
+      
         await TinyShadeBake.downloadSelfContained(app, "demo.html", minifiedRunnerCode.code!,
             {
                 code: (await minifyJS(SynthSource)).code!,

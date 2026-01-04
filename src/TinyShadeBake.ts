@@ -31,7 +31,8 @@ export interface ITinyShadeGraph {
     }[],
     workgroupSize: string,
     common: string
-    audio?: IBakeAudio
+    audio?: IBakePlugin
+    sequencer?: IBakePlugin;
 }
 
 /**
@@ -44,9 +45,9 @@ export interface ITinyShadeGraph {
  * to expose a constructor (e.g. `GPUSynth`) compatible
  * with {@link IAudioPlugin}.
  */
-export interface IBakeAudio {
+export interface IBakePlugin {
     code: string,
-    activator: unknown[], // ? ctor(a,b)
+    activator: unknown[],
     data: any
 }
 
@@ -65,7 +66,7 @@ export class TinyShadeBake {
      * If null, it attempts to fetch the source from 'assets/runnerCode.js'.
      */
     static async downloadSelfContained(app: TinyShade, filename: string = "demo.html", runnerSource?: string,
-        audio?: IBakeAudio
+        audio?: IBakePlugin,sequencer?:IBakePlugin
 
 
     ) {
@@ -74,7 +75,10 @@ export class TinyShadeBake {
 
         if (audio) {
             graph.audio = audio;
+        }
 
+        if(sequencer){
+            graph.sequencer=sequencer;
         }
 
         if (!runnerSource) {
@@ -149,10 +153,9 @@ await r.init();
         const baker = new TinyShadeBake();
         const graph = await baker.collectGraphData(app);
 
-        // Minify shaders before export
         graph.passes.forEach((p: any) => p.shader = baker.minify(p.shader));
 
-  
+
 
 
         if (graph.common) graph.common = baker.minify(graph.common);
@@ -248,7 +251,6 @@ await r.init();
         const rgb = new Uint8Array(side * side * 3);
         rgb.set(payload);
 
-        // PNG scanlines (filter 0)
         const scan = new Uint8Array(side * (side * 3 + 1));
         for (let y = 0; y < side; y++) {
             scan[y * (side * 3 + 1)] = 0;
@@ -281,29 +283,53 @@ await r.init();
 
 
 
-
     private async assembleShader(app: TinyShade, currentPass: IPass): Promise<string> {
         const internalApp = app as any;
         const body = currentPass.shader;
+        const passList = internalApp.passes as IPass[];
         let b = 0;
+
+        // 1. Uniforms
         let header = `${internalApp.uniforms.wgslStruct}\n@group(0) @binding(${b++}) var<uniform> u: Uniforms;\n`;
 
+        // 2. Global Textures & Sampler
         internalApp.globalTextures.forEach((_: any, name: string) => {
-            if (body.includes(name)) header += `@group(0) @binding(${b++}) var ${name}: texture_2d<f32>;\n`;
+            header += `@group(0) @binding(${b++}) var ${name}: texture_2d<f32>;\n`;
         });
+        header += `@group(0) @binding(${b++}) var samp: sampler;\n`;
 
-        if (body.includes("samp")) header += `@group(0) @binding(${b++}) var samp: sampler;\n`;
-
-        internalApp.passes.forEach((p: IPass) => {
-            if (p.isMain) return;
-            if (p.type === 'compute') {
-                if (currentPass === p && body.includes("outTex"))
-                    header += `@group(0) @binding(${b++}) var outTex: texture_storage_2d<rgba8unorm, write>;\n`;
-                else if (body.includes(p.name))
-                    header += `@group(0) @binding(${b++}) var ${p.name}: texture_2d<f32>;\n`;
+        // 3. Dependency Logic (The Fix)
+        // If deps is null/undefined, use all. If [], use only self.
+        const getRelevant = (pass: IPass): IPass[] => {
+            let list: IPass[] = [];
+            if (pass.dependencies) {
+                list = passList.filter(p => pass.dependencies!.includes(p.name));
             } else {
-                if (body.includes(p.name)) header += `@group(0) @binding(${b++}) var ${p.name}: texture_2d<f32>;\n`;
-                if (body.includes(`prev_${p.name}`)) header += `@group(0) @binding(${b++}) var prev_${p.name}: texture_2d<f32>;\n`;
+                list = passList;
+            }
+            const resultSet = new Set(list);
+            if (!pass.isMain) resultSet.add(pass); // Ensure self is ALWAYS present
+            return Array.from(resultSet).sort((a, b) => passList.indexOf(a) - passList.indexOf(b));
+        };
+
+        const relevant = getRelevant(currentPass);
+
+        relevant.forEach((p: IPass) => {
+            const isSelf = (currentPass.name === p.name);
+            if (p.type === 'compute') {
+                if (isSelf) {
+                    header += `@group(0) @binding(${b++}) var outTex: texture_storage_2d<rgba8unorm, write>;\n`;
+                } else {
+                    header += `@group(0) @binding(${b++}) var ${p.name}: texture_2d<f32>;\n`;
+                }
+                if (p.storageBuffer) {
+                    const name = isSelf ? "data" : `${p.name}_data`;
+                    header += `@group(0) @binding(${b++}) var<storage, read_write> ${name}: ${p.isAtomic ? 'array<atomic<u32>>' : 'array<f32>'};\n`;
+                }
+            } else {
+                // Fragment pairs (Current + Prev)
+                header += `@group(0) @binding(${b++}) var ${p.name}: texture_2d<f32>;\n`;
+                header += `@group(0) @binding(${b++}) var prev_${p.name}: texture_2d<f32>;\n`;
             }
         });
 
@@ -314,7 +340,7 @@ await r.init();
 }\n`;
 
         let final = (currentPass.type === 'fragment' ? vert : "") + header + internalApp.commonWGSL + body;
-        return currentPass.type === 'compute' ? final.replace("##WORKGROUP_SIZE", `@compute ${internalApp.workgroupSize.str}`) : final;
+        return final.replace("##WORKGROUP_SIZE", `@compute @workgroup_size(16, 16, 1)`);
     }
 
     private minify(code: string): string {

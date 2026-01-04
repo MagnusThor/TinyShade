@@ -1,26 +1,9 @@
 /**
- * Represents a function that computes uniform values based on time and frame information.
- * @param time - The elapsed time in seconds
- * @param frame - The current frame number
- * @returns A numeric value or an array of numeric values to be used as uniform data
+ * Interfaces for the Uniform System
  */
 export type UniformFunction = (time: number, frame: number) => number | number[];
-/**
- * Represents a uniform value that can be used in shader programs.
- * Can be a single number, an array of numbers, or a function that returns uniform data.
- */
 export type UniformValue = number | number[] | UniformFunction;
 
-/**
- * Represents a single uniform entry in a shader uniform layout.
- * 
- * @property {string} name - The name of the uniform variable.
- * @property {string} type - The WGSL type of the uniform (e.g., "f32", "vec3f", "mat4x4f").
- * @property {number} size - The size of the uniform in bytes.
- * @property {number} align - The alignment requirement of the uniform in bytes.
- * @property {number} offset - The byte offset of the uniform within the buffer.
- * @property {UniformValue} value - The current value of the uniform.
- */
 export interface UniformEntry {
     name: string;
     type: string;
@@ -31,141 +14,172 @@ export interface UniformEntry {
 }
 
 /**
- * Manages uniform buffer layout and data for WebGPU shaders.
- * 
- * Handles the organization, alignment, and serialization of uniform values
- * according to WGSL specifications. Automatically manages buffer size,
- * proper alignment (including the 16-byte requirement for WebGPU uniform buffers),
- * and provides real-time updates for time-based and function-driven uniforms.
- * 
- * @example
- * ```typescript
- * const layout = new UniformLayout([800, 600]);
- * layout.addUniform("color", [1.0, 0.0, 0.0, 1.0]);
- * layout.addUniform("speed", (time) => Math.sin(time));
- * layout.update(performance.now() / 1000);
- * const buffer = layout.float32Array;
- * ```
+ * Manages memory-aligned WebGPU Uniform Buffers.
+ * Handles the strict 16-byte alignment and O(1) update performance.
  */
 export class UniformLayout {
     private entries: UniformEntry[] = [];
-    private size = 0;
-    private _cache: Float32Array | null = null;
+    private buffer!: ArrayBuffer;
+    private floatView!: Float32Array;
+
+    // Fast-access maps to avoid string searching in the render loop
+    private setters: Map<string, (val: any) => void> = new Map();
+    private dynamicUpdates: Array<() => void> = [];
+
+    private isBuilt = false;
+    private _currentOffset = 0;
     private frameCount = 0;
     private currentTime = 0;
 
     constructor(initialResolution: number[]) {
-        // We initialize with standard global uniforms
+        // Register standard demoscene globals
         this.addUniform({ name: "resolution", value: initialResolution });
         this.addUniform({ name: "time", value: 0 });
+        this.addUniform({ name: "sceneId", value: 0 });
+        this.addUniform({ name: "progress", value: 0 });
+        this.addUniform({ name: "flags", value: 0 });
     }
 
     /**
-     * Adds a uniform to the layout with proper WGSL alignment.
-     * @param options - The uniform configuration
-     * @param options.name - The name of the uniform
-     * @param options.value - The value of the uniform
-     * @returns This instance for method chaining
+     * Step 1: Register the structure of your uniforms.
+     * This handles the complex WGSL alignment logic.
      */
-    addUniform({ name, value }: { name: string; value: UniformValue; }): this {
+    addUniform({ name, value }: { name: string; value: UniformValue }): this {
+        if (this.isBuilt) throw new Error("Cannot add uniforms after build()");
+
         const { type, size, align } = this.inferType(value);
-        // Standard WGSL alignment: offset must be a multiple of 'align'
-        const offset = Math.ceil(this.size / align) * align;
-        
-        this.entries.push({ name, type, size, align, offset, value });
-        this.size = offset + size;
-        this._cache = null; // Reset cache so it grows to fit new size
+
+        // WGSL Alignment Rule: The offset must be a multiple of the alignment
+        this._currentOffset = Math.ceil(this._currentOffset / align) * align;
+
+        this.entries.push({
+            name,
+            type,
+            size,
+            align,
+            offset: this._currentOffset,
+            value
+        });
+
+        this._currentOffset += size;
         return this;
     }
 
-    // This is the critical fix for your animation issue
     /**
-     * Updates the uniform layout with the current time and increments the frame counter.
-     * @param time - The current time value to update the uniform layout with.
+     * Step 2: Bake the memory buffer and create O(1) setters.
+     */
+    build() {
+        if (this.isBuilt) return;
+
+        // Final buffer size must be a multiple of 16 bytes
+        const totalSize = Math.ceil(this._currentOffset / 16) * 16;
+        this.buffer = new ArrayBuffer(totalSize);
+        this.floatView = new Float32Array(this.buffer);
+
+        for (const e of this.entries) {
+            const idx = e.offset / 4;
+
+            // Create a specialized closure for setting this specific memory slot
+            const setter = (val: any) => {
+                const resolved = typeof val === "function" ? val(this.currentTime, this.frameCount) : val;
+                if (typeof resolved === "number") {
+                    this.floatView[idx] = resolved;
+                } else {
+                    // Optimized set for vec2, vec3, vec4
+                    this.floatView.set(resolved, idx);
+                }
+            };
+
+            this.setters.set(e.name, setter);
+
+            // If it's a dynamic function, queue it for the update loop
+            if (typeof e.value === "function") {
+                this.dynamicUpdates.push(() => setter(e.value));
+            } else {
+                setter(e.value); // Initial value
+            }
+        }
+
+        this.isBuilt = true;
+    }
+
+    /**
+     * Updates globals and runs all dynamic uniform functions.
      */
     update(time: number) {
+        if (!this.isBuilt) this.build();
         this.currentTime = time;
         this.frameCount++;
-    }
 
-    /**
-     * Gets the byte size of the uniform layout, rounded up to the nearest multiple of 16.
-     * 
-     * @remarks
-     * WebGPU requires uniform buffers to be aligned to 16-byte boundaries.
-     * 
-     * @returns The size in bytes, guaranteed to be a multiple of 16.
-     */
-    get byteSize(): number { 
-        // Uniform buffers must be multiples of 16 bytes in WebGPU
-        return Math.ceil(this.size / 16) * 16; 
-    }
+        // This actually writes the new time into the floatView/ArrayBuffer
+        this.setters.get("time")?.(time);
 
-    /**
-     * Generates a WGSL struct definition string for the uniform layout.
-     * 
-     * @returns {string} A WGSL struct named "Uniforms" containing all entries
-     * with their respective names and types, formatted as a valid WGSL struct declaration.
-     * 
-     * @example
-     * // Returns: "struct Uniforms {\n  position: vec3,\n  color: vec4,\n};"
-     * const structDef = uniformLayout.wgslStruct;
-     */
-    get wgslStruct(): string {
-        return `struct Uniforms {\n${this.entries.map(e => `  ${e.name}: ${e.type},`).join("\n")}\n};`;
-    }
-
-    /**
-     * Gets a Float32Array representation of the uniform layout data.
-     * 
-     * Lazily initializes and caches a Float32Array buffer sized to accommodate all uniform entries.
-     * Iterates through each entry, resolving its value (from time, a function, or a static value),
-     * and writes the resolved value(s) into the appropriate offset in the cache.
-     * 
-     * @returns {Float32Array} The cached Float32Array containing all uniform values in binary format.
-     */
-    get float32Array(): Float32Array {
-        if (!this._cache) this._cache = new Float32Array(this.byteSize / 4);
-        
-        for (const e of this.entries) {
-            let val: number | number[];
-
-            // Determine the value based on the entry name or function
-            if (e.name === "time") {
-                val = this.currentTime;
-            } else if (typeof e.value === "function") {
-                val = (e.value as UniformFunction)(this.currentTime, this.frameCount);
-            } else {
-                val = e.value as number | number[];
-            }
-
-            const startIndex = e.offset / 4;
-            if (typeof val === "number") {
-                this._cache[startIndex] = val;
-            } else {
-                for (let i = 0; i < val.length; i++) {
-                    this._cache[startIndex + i] = val[i];
-                }
-            }
+        for (const update of this.dynamicUpdates) {
+            update();
         }
-        return this._cache;
     }
 
     /**
-     * Infers the WGSL type and memory layout information for a uniform value.
-     * @param value - The uniform value to infer the type for. Can be a number, array of numbers, or a function that returns one of these.
-     * @returns An object containing the WGSL type name, size in bytes, and alignment requirement in bytes.
-     * @throws {Error} If the uniform array length is not 2, 3, or 4.
+     * Sequencer-specific update for scene management.
+     */
+  updateSequencer(sceneId: number, progress: number, flags: number) {
+    if (!this.isBuilt) this.build();
+    
+    // Get the pre-compiled setter functions and execute them
+    const setId = this.setters.get("sceneId");
+    const setProg = this.setters.get("progress");
+    const setFlags = this.setters.get("flags");
+
+    if (setId) setId(sceneId);
+    if (setProg) setProg(progress);
+    if (setFlags) setFlags(flags);
+    
+    if(this.entries){
+
+        
+    //console.log("Buffer SceneId Index:", this.entries.find(e => e.name === 'sceneId')?.offset / 4);
+
+    console.log("Value in Buffer:", this.floatView[this.entries.find(e => e.name === 'sceneId')!.offset / 4]);
+    }
+}
+
+    // --- Getters ---
+
+    get byteSize(): number {
+        if (!this.isBuilt) this.build();
+        return this.buffer.byteLength;
+    }
+
+    get float32Array(): Float32Array {
+        if (!this.isBuilt) this.build();
+        return this.floatView;
+    }
+
+    get wgslStruct(): string {
+        const lines = this.entries.map(e => `    ${e.name}: ${e.type},`);
+        return `struct Uniforms {\n${lines.join("\n")}\n};`;
+    }
+
+    /**
+     * Resolves WGSL types based on the input data format.
      */
     private inferType(value: UniformValue) {
-        const sample = typeof value === "function" ? (value as UniformFunction)(0, 0) : value;
-        if (typeof sample === "number") return { type: "f32", size: 4, align: 4 };        
-        const len = (sample as number[]).length;
-        switch (len) {
-            case 2: return { type: "vec2f", size: 8, align: 8 };
-            case 3: return { type: "vec3f", size: 12, align: 16 }; // Note: vec3 aligns to 16
-            case 4: return { type: "vec4f", size: 16, align: 16 };
-            default: throw new Error(`Uniform array length ${len} not supported.`);
+        // If it's a function, run it once with 0 to see what it returns
+        const sample = typeof value === "function" ? value(0, 0) : value;
+
+        if (typeof sample === "number") {
+            return { type: "f32", size: 4, align: 4 };
         }
+
+        if (Array.isArray(sample)) {
+            const len = sample.length;
+            switch (len) {
+                case 2: return { type: "vec2f", size: 8, align: 8 };
+                case 3: return { type: "vec3f", size: 12, align: 16 }; // Vec3 requires 16-byte alignment
+                case 4: return { type: "vec4f", size: 16, align: 16 };
+            }
+        }
+
+        throw new Error(`Unsupported uniform value type: ${typeof sample}`);
     }
 }

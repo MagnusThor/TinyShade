@@ -66,7 +66,7 @@ module.exports = (env, argv) => {
                 new TerserPlugin({
                     terserOptions: {
                         format: { comments: false },
-                        mangle: { toplevel: true },
+                        mangle: { toplevel: false },
                         compress: { drop_console: isProduction, passes: 2 },
                     },
                 }),

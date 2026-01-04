@@ -74,6 +74,7 @@ export class TinyShade {
     private commonWGSL: string = "";
     private passes: IPass[] = [];
     private passLayouts: GPUBindGroupLayout[] = [];
+    private bgCache: GPUBindGroup[][] = [];
 
     private mainPassShader: string = "";
     private mainPipeline!: GPURenderPipeline;
@@ -81,12 +82,13 @@ export class TinyShade {
     private startedAudio = false;
 
     private workgroupSize = { x: 8, y: 8, z: 1, str: "@workgroup_size(8, 8, 1)" };
+    private globalSampler: GPUSampler | undefined;
 
     private constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
         const dpr = window.devicePixelRatio || 1;
-        this.uniforms = new UniformLayout([this.canvas.width*dpr, this.canvas.height*dpr, dpr]);
-    
+        this.uniforms = new UniformLayout([this.canvas.width * dpr, this.canvas.height * dpr, dpr]);
+
     }
 
 
@@ -112,6 +114,11 @@ export class TinyShade {
         if (adapter.features.has('timestamp-query')) features.push('timestamp-query');
 
         this.device = await adapter.requestDevice({ requiredFeatures: features });
+
+        this.globalSampler = this.device.createSampler({
+            magFilter: 'linear',
+            minFilter: 'linear',
+        });
 
         this.workgroupSize = getWorkgroupSize(adapter.limits);
 
@@ -219,12 +226,12 @@ export class TinyShade {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
         });
 
-      this.passes.push({
+        this.passes.push({
             name,
             type: 'compute',
             shader: wgsl,
             storageBuffer: buf,
-            isAtomic: true, 
+            isAtomic: true,
             pipelines: [],
             textures: []
         });
@@ -367,6 +374,7 @@ export class TinyShade {
                 if (currentPass.isMain) this.mainPipeline = currentPass.pipelines[0] as GPURenderPipeline;
             }
         });
+        this.bgCache = []
         this.isCompiled = true;
     }
 
@@ -382,7 +390,7 @@ export class TinyShade {
         // Global Sampler
         entries.push({
             binding: b++,
-            resource: this.device.createSampler({ magFilter: 'linear', minFilter: 'linear' })
+            resource: this.globalSampler!
         });
 
         // Pass-specific Resources
@@ -447,6 +455,7 @@ export class TinyShade {
         const frame = (now: number) => {
             if (!this.isCompiled) return;
 
+            // 1. Audio Sync
             if (this.audioPlugin && !this.startedAudio) {
                 this.audioPlugin.play();
                 this.startedAudio = true;
@@ -457,8 +466,10 @@ export class TinyShade {
                 ? this.audioPlugin!.getTime()
                 : (now - this.startTime) / 1000;
 
+            // 2. Buffer Swapping (Ping-Pong)
             const writeIdx = (this.frameCounter % 2);
 
+            // 3. Uniform Updates
             this.uniforms.update(time);
             Buffer.write(this.device, this.uniformBuffer, this.uniforms.float32Array);
 
@@ -466,13 +477,22 @@ export class TinyShade {
             const passTimings: { name: string, start: number, end: number }[] = [];
             if (timer) timer.reset();
 
+            // 4. Execute Intermediate Passes
             this.passes.forEach((p, i) => {
+                // Clear Atomics if necessary
                 if (p.isAtomic && p.storageBuffer) {
                     enc.clearBuffer(p.storageBuffer);
                 }
-                const bg = this.createBindGroup(i, writeIdx);
-                let tw: GPURenderPassTimestampWrites | undefined;
 
+                // --- BIND GROUP CACHING ---
+                if (!this.bgCache[i]) this.bgCache[i] = [];
+                if (!this.bgCache[i][writeIdx]) {
+                    this.bgCache[i][writeIdx] = this.createBindGroup(i, writeIdx);
+                }
+                const bg = this.bgCache[i][writeIdx];
+
+                // Timing Setup
+                let tw: GPURenderPassTimestampWrites | undefined;
                 if (timer) {
                     const idx = timer.allocateIndices();
                     if (idx) {
@@ -490,13 +510,12 @@ export class TinyShade {
                     cp.setPipeline(p.pipelines[0] as GPUComputePipeline);
                     cp.setBindGroup(0, bg);
 
-
+                    // Dispatch logic (Canvas-based)
                     cp.dispatchWorkgroups(
                         Math.ceil(this.canvas.width / this.workgroupSize.x),
                         Math.ceil(this.canvas.height / this.workgroupSize.y),
                         1
                     );
-
                     cp.end();
                 } else {
                     const rp = enc.beginRenderPass({
@@ -515,6 +534,12 @@ export class TinyShade {
                 }
             });
 
+            // 5. Main Render Pass (Output to Screen)
+            const mainIdx = this.passes.length;
+            if (!this.bgCache[mainIdx]) this.bgCache[mainIdx] = [];
+            if (!this.bgCache[mainIdx][writeIdx]) {
+                this.bgCache[mainIdx][writeIdx] = this.createBindGroup(mainIdx, writeIdx);
+            }
 
             let mtw: GPURenderPassTimestampWrites | undefined;
             if (timer) {
@@ -538,11 +563,13 @@ export class TinyShade {
                 }],
                 timestampWrites: mtw
             });
+
             mp.setPipeline(this.mainPipeline);
-            mp.setBindGroup(0, this.createBindGroup(this.passes.length, writeIdx));
+            mp.setBindGroup(0, this.bgCache[mainIdx][writeIdx]);
             mp.draw(3);
             mp.end();
 
+            // 6. Submit and Loop
             this.device.queue.submit([enc.finish()]);
 
             if (timer) timer.resolve(passTimings);

@@ -394,8 +394,6 @@ This split enables:
 -   Large authoring API → tiny runtime    
 -   Creative iteration → production delivery    
 
-Audio support is intentionally omitted from the current runner, as synchronization strategies are **highly production-dependent** and will be introduced in a future release.
-
 ---
 
 
@@ -429,16 +427,6 @@ TinyShade stands on the shoulders of giants in the creative coding community:
 
 **PCrush**: For the [GPUSynth architecture](https://github.com/MagnusThor/so-you-think-you-can-code-2025/blob/main/day04/readme.md). TinyShade’s audio integration and internal DSP logic are heavily inspired by and adapted from his work on GPU-based sound synthesis.
 
----    
-
-
-That is an ambitious and logical next step. Moving from a **linear chain** to a **Directed Acyclic Graph (DAG)** will allow for much higher performance, as independent passes (like two different post-process filters or parallel simulation steps) can be dispatched to the GPU simultaneously or packed into the same command buffer more efficiently.
-
----
-
-That sounds like a perfect, intuitive "low-friction" design. By making the dependency implicit (all prior passes) but allow for explicit overrides with `.dependsOn()`, you provide the power of a full Graph without forcing the user to map every single edge for simple projects.
-
----
 
 ## 🗺️ Roadmap: v2 Semi-Graph & Live-Editor Ecosystem
 I'm  currently architecting the next evolution of TinyShade, moving from a linear execution chain to a **Programmatically Defined Semi-Graph**.

@@ -57,7 +57,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 atomicAdd(&data[idx], 1u); 
             }
         }
-        `, HEATMAP_SIZE)
+        `, HEATMAP_SIZE,true)
 
         .addPass("accum", /*wgsl*/`
         @fragment fn main(in: VSOut) -> @location(0) vec4f {

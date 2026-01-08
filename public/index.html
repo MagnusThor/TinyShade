@@ -12,9 +12,14 @@
         <div class="container">
             <h1 class="mb-4 text-center">🌑 TinyShade examples</h1>
             <p class="mb-5">
-                Dive into a curated laboratory of real-time GPU experiments forged with TinyShade. Each standalone simulation pushes the boundaries of the WebGPU pipeline, utilizing unique Render Pass Architectures to achieve distinct visual identities.
+                Dive into a curated laboratory of real-time GPU experiments forged with TinyShade. Each standalone
+                simulation pushes the boundaries of the WebGPU pipeline, utilizing unique Render Pass Architectures to
+                achieve distinct visual identities.
 
-From multi-stage feedback loops that generate bioluminescent membranes to branchless compute kernels driving Monte Carlo path tracers, these examples demonstrate the raw power of custom shader chains. Witness how procedural noise, fractal orbit traps, and physically-based raymarching come alive through sophisticated combinations of compute-to-texture storage and cinematic post-processing stacks.
+                From multi-stage feedback loops that generate bioluminescent membranes to branchless compute kernels
+                driving Monte Carlo path tracers, these examples demonstrate the raw power of custom shader chains.
+                Witness how procedural noise, fractal orbit traps, and physically-based raymarching come alive through
+                sophisticated combinations of compute-to-texture storage and cinematic post-processing stacks.
             </p>
 
             <div class="row g-4">
@@ -23,9 +28,11 @@ From multi-stage feedback loops that generate bioluminescent membranes to branch
                         <div class="card-body">
                             <h5 class="card-title">Example 1</h5>
                             <p class="card-text">
-                         Bio-Organic Membrane: uses Domain Warping and Voronoi Noise to simulate visceral, natural textures. It demonstrates layering simple math functions to create complex, organic cellular effects.
+                                Bio-Organic Membrane: uses Domain Warping and Voronoi Noise to simulate visceral,
+                                natural textures. It demonstrates layering simple math functions to create complex,
+                                organic cellular effects.
                             </p>
-                                <a href="example-1.html" class="btn btn-primary">Open Example 1</a>
+                            <a href="example-1.html" class="btn btn-primary">Open Example 1</a>
                         </div>
                     </div>
                 </div>
@@ -35,7 +42,9 @@ From multi-stage feedback loops that generate bioluminescent membranes to branch
                         <div class="card-body">
                             <h5 class="card-title">Example 2</h5>
                             <p class="card-text">
-                      Fractal Orbit Trap: uses high-precision AA and Distance Estimation. Unlike "escape time" fractals, it maps point paths ("orbits") to create intricate, textured coloring rather than just iteration counts.      </p>
+                                Fractal Orbit Trap: uses high-precision AA and Distance Estimation. Unlike "escape time"
+                                fractals, it maps point paths ("orbits") to create intricate, textured coloring rather
+                                than just iteration counts. </p>
                             <a href="example-2.html" class="btn btn-primary">Open Example 2</a>
                         </div>
                     </div>
@@ -46,7 +55,9 @@ From multi-stage feedback loops that generate bioluminescent membranes to branch
                         <div class="card-body">
                             <h5 class="card-title">Example 3</h5>
                             <p class="card-text">
-Bioluminescent sim: uses Temporal Accumulation and Bloom to soften organic noise into a glowy membrane. It leverages frame history and simulated optics for a cinematic, soft-light aesthetic.    </p>
+                                Bioluminescent sim: uses Temporal Accumulation and Bloom to soften organic noise into a
+                                glowy membrane. It leverages frame history and simulated optics for a cinematic,
+                                soft-light aesthetic. </p>
                             <a href="example-3.html" class="btn btn-primary">Open Example 3</a>
                         </div>
                     </div>
@@ -57,7 +68,9 @@ Bioluminescent sim: uses Temporal Accumulation and Bloom to soften organic noise
                         <div class="card-body">
                             <h5 class="card-title">Example 4</h5>
                             <p class="card-text">
-                              1M particles move via a Compute physics pass into an Atomic heatmap, creating additive density. A Fragment pass adds blurred trails, mapped to a Neon-Galaxy palette with filmic post-processing. 
+                                1M particles move via a Compute physics pass into an Atomic heatmap, creating additive
+                                density. A Fragment pass adds blurred trails, mapped to a Neon-Galaxy palette with
+                                filmic post-processing.
                                 .</p>
                             <a href="example-4.html" class="btn btn-primary">Open Example 4</a>
                         </div>
@@ -69,7 +82,9 @@ Bioluminescent sim: uses Temporal Accumulation and Bloom to soften organic noise
                         <div class="card-body">
                             <h5 class="card-title">Example 5</h5>
                             <p class="card-text">
-                                GPU profiling reveals per-pass latency: computeTex0 manages particle physics and projection, while trails, background, and main handle composition, post-processing, and timing results.
+                                GPU profiling reveals per-pass latency: computeTex0 manages particle physics and
+                                projection, while trails, background, and main handle composition, post-processing, and
+                                timing results.
                             </p>
                             <a href="example-5.html" class="btn btn-primary">Open Example 5</a>
                         </div>
@@ -81,7 +96,10 @@ Bioluminescent sim: uses Temporal Accumulation and Bloom to soften organic noise
                         <div class="card-body">
                             <h5 class="card-title">Example 6</h5>
                             <p class="card-text">
-                               This example bridges high-performance visuals with traditional web elements by loading a static photo and a dynamic 2D canvas as GPU textures. The shader generates a procedural plasma background, mixes it with the image, and then alpha-composites the "TINYSHADE" text layer on top.
+                                This example bridges high-performance visuals with traditional web elements by loading a
+                                static photo and a dynamic 2D canvas as GPU textures. The shader generates a procedural
+                                plasma background, mixes it with the image, and then alpha-composites the "TINYSHADE"
+                                text layer on top.
 
                             </p>
                             <a href="example-6.html" class="btn btn-primary">Open Example 6</a>
@@ -89,42 +107,48 @@ Bioluminescent sim: uses Temporal Accumulation and Bloom to soften organic noise
                     </div>
                 </div>
 
-                
+
                 <div class="col-md-6 col-lg-4">
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 7</h5>
                             <p class="card-text">
-                            AV raymarcher: syncs GPU sound with a physically-based 3D scene. Features a singular sun driving soft shadows, Fresnel reflections, and fog, finished with a cinematic post-processing stack.</p>
+                                AV raymarcher: syncs GPU sound with a physically-based 3D scene. Features a singular sun
+                                driving soft shadows, Fresnel reflections, and fog, finished with a cinematic
+                                post-processing stack.</p>
                             <a href="example-7.html" class="btn btn-primary">Open Example 7</a>
                         </div>
                     </div>
                 </div>
 
-                  <div class="col-md-6 col-lg-4">
+                <div class="col-md-6 col-lg-4">
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 8</h5>
                             <p class="card-text">
-                         WebGPU Path Tracer: A branchless Monte Carlo adaptation of Mårten Rånge's "Festive" logic. Optimized for high-performance compute architecture to simulate sophisticated light transport and materials.   </p>
+                                WebGPU Path Tracer: A branchless Monte Carlo adaptation of Mårten Rånge's "Festive"
+                                logic. Optimized for high-performance compute architecture to simulate sophisticated
+                                light transport and materials. </p>
                             <a href="example-8.html" class="btn btn-primary">Open Example 8</a>
                         </div>
                     </div>
                 </div>
 
-                  <div class="col-md-6 col-lg-4">
+                <div class="col-md-6 col-lg-4">
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 9</h5>
                             <p class="card-text">
-                                This Atomic Holographic SDF uses 1M particles to map 3D fractals. A Compute pass drives physics, an Atomic pass splats density into a heatmap, and Feedback creates motion streaks.
+                                This Atomic Holographic SDF uses 1M particles to map 3D fractals. A Compute pass drives
+                                physics, an Atomic pass splats density into a heatmap, and Feedback creates motion
+                                streaks.
                             </p>
                             <a href="example-9.html" class="btn btn-primary">Open Example 9</a>
                         </div>
                     </div>
                 </div>
 
-                   <div class="col-md-6 col-lg-4">
+                <div class="col-md-6 col-lg-4">
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 10</h5>
@@ -138,33 +162,38 @@ Bioluminescent sim: uses Temporal Accumulation and Bloom to soften organic noise
                 </div>
 
 
-                    <div class="col-md-6 col-lg-4">
+                <div class="col-md-6 col-lg-4">
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 11</h5>
                             <p class="card-text">
-                                Example 2 - Baked using TinyShadeBake and Executed using TinyShadeRunner.
-                                WGSL Shaders mangled and GPUSynth added.
+                                a WGSL implementation of "Tomb World of Silicon Beats" by Mårten Rånge.
+                                Original version <a
+                                    href="https://www.shadertoy.com/view/tcKBR3">https://www.shadertoy.com/view/tcKBR3</a>
                             </p>
                             <a href="example-11.html" class="btn btn-primary">Open Example 11</a>
                         </div>
                     </div>
                 </div>
-              
 
-                
-                    <div class="col-md-6 col-lg-4">
+
+
+                <div class="col-md-6 col-lg-4">
                     <div class="card bg-dark text-white h-100">
                         <div class="card-body">
                             <h5 class="card-title">Example 12</h5>
                             <p class="card-text">
-                           Multi-Pass Sequencer Demo Orchestrate a complex WebGPU pipeline with ease. This setup drives a dynamic Noise Source into a Selective Blur pass, using the TSSequencer to modulate mix-ratios and FX flags in real-time. Powerfully simple.
+                                Multi-Pass Sequencer Demo Orchestrate a complex WebGPU pipeline with ease. This setup
+                                drives a dynamic Noise Source into a Selective Blur pass, using the TSSequencer to
+                                modulate mix-ratios and FX flags in real-time. Powerfully simple.
                             </p>
                             <a href="example-12.html" class="btn btn-primary">Open Example 12</a>
                         </div>
                     </div>
                 </div>
-                
+
+
+
 
             </div>
         </div>

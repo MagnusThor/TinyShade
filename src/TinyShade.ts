@@ -61,6 +61,9 @@ export interface IPass {
     isMain?: boolean;
     /** List of pass names whose results this pass needs to read. */
     dependencies?: string[];
+    /** If true, the storage buffer atomic<u32>. clears on evenry frame */
+
+    clear?: boolean;        // <--- Add this
 }
 
 /**
@@ -213,7 +216,9 @@ export class TinyShade {
             usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
         });
         let buf;
+        
         if (size > 0) buf = this.device.createBuffer({ size: size * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+
         this.passes.push({ name, type: 'compute', shader: wgsl, textures: [tex], storageBuffer: buf, pipelines: [], dependencies: deps });
         return this;
     }
@@ -221,12 +226,12 @@ export class TinyShade {
     /**
      * Adds a compute pass optimized for atomic operations (e.g., histograms, particle counters).
      */
-    addAtomicCompute(name: string, wgsl: string, bufferSize: number, deps?: string[]): this {
+    addAtomicCompute(name: string, wgsl: string, bufferSize: number, clear: boolean = true, deps?: string[]): this {
         const buf = this.device.createBuffer({
             size: bufferSize * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
         });
-        this.passes.push({ name, type: 'compute', shader: wgsl, storageBuffer: buf, isAtomic: true, pipelines: [], textures: [], dependencies: deps });
+        this.passes.push({ name, type: 'compute', shader: wgsl, storageBuffer: buf, isAtomic: true, clear: clear, pipelines: [], textures: [], dependencies: deps });
         return this;
     }
 
@@ -322,6 +327,10 @@ export class TinyShade {
                 (currentPass.type === 'compute' ? currentPass.shader.replace("##WORKGROUP_SIZE", `@compute ${this.workgroupSize.str}`) : currentPass.shader);
 
             const mod = this.device.createShaderModule({ code });
+
+
+            console.info(`${currentPass.name}\n\n${code}\n\n`)
+
             const pipeLayout = this.device.createPipelineLayout({ bindGroupLayouts: [layout] });
 
             if (currentPass.type === 'compute') {
@@ -370,74 +379,130 @@ export class TinyShade {
         return this.device.createBindGroup({ layout: this.passLayouts[stageIdx], entries });
     }
 
+
     /**
-     * Starts the render loop.
-     * @param timer Optional WebGPUTiming plugin for profiling.
-     */
-    run(timer?: WebGPUTiming): this {
-        const frame = (now: number) => {
-            if (!this.isCompiled) return;
-            if (this.audioPlugin && !this.startedAudio) { this.audioPlugin.play(); this.startedAudio = true; }
-
-            const time = (this.audioPlugin?.isPlaying) ? this.audioPlugin!.getTime() : (now - this.startTime) / 1000;
-            const writeIdx = (this.frameCounter % 2);
-
-            let sId = 0, sProg = 0, sFlags = 0;
-            if (this.sequencer) {
-                const state = this.sequencer.update(time);
-                sId = state.sceneId;
-                sProg = state.progress;
-                sFlags = state.flags;
-                this.uniforms.updateSequencer(sId, sProg, sFlags);
-               
-           
-            }
-            this.uniforms.update(time);
-
+ * Starts the render loop and manages the GPU command lifecycle.
+ * @param timer Optional WebGPUTiming plugin for profiling.
+ */
+run(timer?: WebGPUTiming): this {
+    const frame = (now: number) => {
+        if (!this.isCompiled) return;
         
-            
-           // Buffer.write(this.device, this.uniformBuffer, this.uniforms.float32Array);
+        if (this.audioPlugin && !this.startedAudio) { 
+            this.audioPlugin.play(); 
+            this.startedAudio = true; 
+        }
 
-            this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniforms.float32Array as GPUAllowSharedBufferSource)
+        const time = (this.audioPlugin?.isPlaying) ? this.audioPlugin!.getTime() : (now - this.startTime) / 1000;
+        const writeIdx = (this.frameCounter % 2);
 
-       
+        if (this.sequencer) {
+            const state = this.sequencer.update(time);
+            this.uniforms.updateSequencer(state.sceneId, state.progress, state.flags);
+        }
+        this.uniforms.update(time);
 
-            const enc = this.device.createCommandEncoder();
-            this.passes.forEach((p, i) => {
-                if (p.isAtomic && p.storageBuffer) enc.clearBuffer(p.storageBuffer);
-                const bg = this.createBindGroup(i, writeIdx);
+        this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniforms.float32Array as GPUAllowSharedBufferSource);
 
-                if (p.type === 'compute') {
-                    const cp = enc.beginComputePass();
-                    cp.setPipeline(p.pipelines[0] as GPUComputePipeline);
-                    cp.setBindGroup(0, bg);
-                    cp.dispatchWorkgroups(Math.ceil(this.canvas.width / this.workgroupSize.x), Math.ceil(this.canvas.height / this.workgroupSize.y), 1);
-                    cp.end();
-                } else {
-                    const rp = enc.beginRenderPass({
-                        colorAttachments: [{ view: p.textures[writeIdx].createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }]
-                    });
-                    rp.setPipeline(p.pipelines[0] as GPURenderPipeline);
-                    rp.setBindGroup(0, bg);
-                    rp.draw(3);
-                    rp.end();
+        const enc = this.device.createCommandEncoder();
+        const passTimings: { name: string, start: number, end: number }[] = [];
+        if (timer) timer.reset();
+
+        this.passes.forEach((p, i) => {
+            // Framework Logic: Only clear if explicitly requested or if it's a fresh atomic pass
+            if (p.isAtomic && p.storageBuffer && p.clear !== false) {
+                enc.clearBuffer(p.storageBuffer);
+            }
+
+            const bg = this.createBindGroup(i, writeIdx);
+            let tw: GPURenderPassTimestampWrites | undefined;
+            if (timer) {
+                const idx = timer.allocateIndices();
+                if (idx) {
+                    tw = { querySet: timer.querySet!, beginningOfPassWriteIndex: idx.start, endOfPassWriteIndex: idx.end };
+                    passTimings.push({ name: p.name, ...idx });
                 }
-            });
+            }
 
-            const mainBG = this.createBindGroup(this.passes.length, writeIdx);
-            const mp = enc.beginRenderPass({
-                colorAttachments: [{ view: this.context.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }]
-            });
-            mp.setPipeline(this.mainPipeline);
-            mp.setBindGroup(0, mainBG);
-            mp.draw(3);
-            mp.end();
+            if (p.type === 'compute') {
+                const cp = enc.beginComputePass({ timestampWrites: tw as any });
+                cp.setPipeline(p.pipelines[0] as GPUComputePipeline);
+                cp.setBindGroup(0, bg);
 
-            this.device.queue.submit([enc.finish()]);
-            this.frameCounter++;
-            requestAnimationFrame(frame);
-        };
+                /**
+                 * FRAMEWORK DISPATCH LOGIC:
+                 * 1. If the pass has textures, it's likely a Screen-Space Compute (Resolution based).
+                 * 2. If it has NO textures but HAS a buffer, it's a Data-only Compute (Buffer size based).
+                 */
+                if (p.textures && p.textures.length > 0) {
+                    // Screen-space: Dispatch by Canvas Dimensions
+                    cp.dispatchWorkgroups(
+                        Math.ceil(this.canvas.width / this.workgroupSize.x),
+                        Math.ceil(this.canvas.height / this.workgroupSize.y),
+                        1
+                    );
+                } else if (p.storageBuffer) {
+                    // Data-space: Dispatch by Buffer Length (divided by 4 bytes per float)
+                    // We assume 1D dispatch for data-only buffers
+                    const totalElements = p.storageBuffer.size / 4;
+                    const threadsPerGroup = this.workgroupSize.x * this.workgroupSize.y;
+                    cp.dispatchWorkgroups(Math.ceil(totalElements / threadsPerGroup), 1, 1);
+                }
+                
+                cp.end();
+            } else {
+                // Standard Fragment Pass
+                const rp = enc.beginRenderPass({
+                    colorAttachments: [{
+                        view: p.textures[writeIdx].createView(),
+                        loadOp: "clear",
+                        storeOp: "store",
+                        clearValue: [0, 0, 0, 1]
+                    }],
+                    timestampWrites: tw
+                });
+                rp.setPipeline(p.pipelines[0] as GPURenderPipeline);
+                rp.setBindGroup(0, bg);
+                rp.draw(3);
+                rp.end();
+            }
+        });
+
+        // Final Canvas Output
+        const mainBG = this.createBindGroup(this.passes.length, writeIdx);
+        let mtw: GPURenderPassTimestampWrites | undefined;
+        if (timer) {
+            const idx = timer.allocateIndices();
+            if (idx) {
+                mtw = { querySet: timer.querySet!, beginningOfPassWriteIndex: idx.start, endOfPassWriteIndex: idx.end };
+                passTimings.push({ name: "main", ...idx });
+            }
+        }
+
+        const mp = enc.beginRenderPass({
+            colorAttachments: [{
+                view: this.context.getCurrentTexture().createView(),
+                loadOp: "clear",
+                storeOp: "store",
+                clearValue: [0, 0, 0, 1]
+            }],
+            timestampWrites: mtw
+        });
+        mp.setPipeline(this.mainPipeline);
+        mp.setBindGroup(0, mainBG);
+        mp.draw(3);
+        mp.end();
+
+        this.device.queue.submit([enc.finish()]);
+        if (timer) timer.resolve(passTimings);
+
+        this.frameCounter++;
         requestAnimationFrame(frame);
-        return this;
-    }
+    };
+
+    requestAnimationFrame(frame);
+    return this;
+}
+
+
 }

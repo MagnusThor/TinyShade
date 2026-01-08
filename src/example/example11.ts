@@ -1,62 +1,96 @@
-import { minifyJS } from "../helpers/minifyJS";
-import { GPUSynth } from "../plugins/GPUSynth";
 import { TinyShade } from "../TinyShade";
+
+
+import commonWGSL from './wgsl/common.wgsl';
+
+import skyFragWGSL from './wgsl/skyFrag.wgsl';
+import worldFragWGSL from './wgsl/worldFrag.wgsl';
+import finalFragWGSL from './wgsl/finalFrag.wgsl';
+import mainFragWGSL from './wgsl/mainFrag.wgsl';
+
+
+import meteorsComputeWGSL from './wgsl/meteorsCompute.wgsl';
+import meteorsFragWGSL from './wgsl/meteorsFrag.wgsl';
+import crater_mapWGSL from './wgsl/cratersAtomic.wgsl';
+
+import particlesWGSL from './wgsl/particlesCompute.wgsl';
+import particleTrailsFragWGSL from './wgsl/particleTrailsFrag.wgsl';
+
+
+import volcanoCompute from './wgsl/volcanoCompute.wgsl'; 
+import volcanoAtomicWGSL from './wgsl/volcanoAtomic.wgsl'; 
+import volcanoFragWGSL from './wgsl/volcanoFrag.wgsl';
+import flashCompute from './wgsl/flashCompute.wgsl';
+
+
+
 import { TinyShadeBake } from "../TinyShadeBake";
-import { TinyShadeRunner } from "../TinyShaderRunner";
-import { EPIC_LONG_WGSL_MIN } from "./music/PCrushSongs/EPIC_LONG_WGSL";
+import RunnerSource from "../TinyShaderRunner.ts?raw";
 
-import shader from './wgsl/example11-compute0.min.wgsl';
+import { minifyJS } from "../helpers/minifyJS";
+import { RollingAverage, WebGPUTiming } from "../plugins/WebGPUTiming";
 
-
-document.addEventListener("DOMContentLoaded", async () => {
+const start = async () => {
     const app = await TinyShade.create("canvas");
 
+    const PARTICLE_COUNT = 4_000;
+    const PARTICLE_STORAGE_SIZE = PARTICLE_COUNT * 4;
 
-    const audio = new GPUSynth(app.device,EPIC_LONG_WGSL_MIN);
+    const ASTEROID_COUNT = 32; 
+    const PHYSICS_STORAGE_SIZE = ASTEROID_COUNT * 4; 
+    const ATOMIC_BUFFER_SIZE = app.canvas.width * app.canvas.height
 
-    document.querySelector("canvas")!.addEventListener("click", async () => {
-        
-          const minifiedRunnerCode = await minifyJS(TinyShadeRunner.toString());
-                        
-                console.info(`Runner size ${minifiedRunnerCode.code!.length} bytes (${(minifiedRunnerCode.code!.length / 1024).toFixed(2)} KB)`)
-        
-                await TinyShadeBake.downloadSelfContained(app, "demo.html", minifiedRunnerCode.code!,
-                    {
-                        code: (await minifyJS(GPUSynth.toString())).code!,
-                        data: EPIC_LONG_WGSL_MIN,
-                        activator: []
-                    }
-                );
-        
+   
 
+    const stats = document.createElement("div");
+    stats.style.cssText = "position:absolute;top:10px;left:10px;color:#0f0;font-family:monospace;background:rgba(0,0,0,0.8);padding:10px;border-radius:5px;pointer-events:none;z-index:100;line-height:1.4;font-size:12px;border:1px solid #333;";
+    document.body.appendChild(stats);
+    const avg = new RollingAverage(60);
+    const timing = new WebGPUTiming(app.device, (results) => {
+        let displayStr = "";
+        let totalFrameTime = 0;
+        results.forEach(res => {
+            displayStr += `${res.name.padEnd(12)} : ${res.ms.toFixed(3)} ms\n`;
+            totalFrameTime += res.ms;
+        });
+        avg.add(totalFrameTime);
+        displayStr += `---------------------------\n`;
+        displayStr += `${"Total GPU".padEnd(12)} : ${avg.get().toFixed(3)} ms`;
+        stats.innerText = displayStr;
     });
 
-    (await 
-        app.addAudio(audio).
-        setUniforms()
-        /**
-         * COMPUTE PASS: Fractal Orbit Trap
-         */
-        .addCompute("C",shader)
-        /**
-         * MAIN: Final Post-Process
-         */
-        .main(`
-        @fragment fn main(in: VSOut) -> @location(0) vec4f {
-            let uv = in.uv;
-            let f= textureSample(C, samp, uv).rgb;            
-            let v = smoothstep(1.5, 0.3, length(uv - 0.5));
-            let color = pow(f * v, vec3f(1.1));
-            return vec4f(color, 1.0);
-        }
-    `));
-    //.run();
-
-      const startButton = document.querySelector("button");
-    startButton!.addEventListener('click', () => {
-        startButton!.classList.add('d-none');
-        app.run();
-    }, { once: true });
 
 
-});
+    (await app
+        .setUniforms((l) => l.addUniform({ name: "count", value: PARTICLE_COUNT })
+        .addUniform({name:"asteroids",value: 10})
+        )
+        .addCommon(commonWGSL)
+        .addCompute("physics",meteorsComputeWGSL, PHYSICS_STORAGE_SIZE )
+        .addAtomicCompute("crater_map", crater_mapWGSL, ATOMIC_BUFFER_SIZE ,false)
+        
+        .addCompute("particles", particlesWGSL, PARTICLE_STORAGE_SIZE)
+        .addPass("particleTrails", particleTrailsFragWGSL)
+        
+        .addCompute("volcano",volcanoCompute, 1000 * 4)
+        
+        .addAtomicCompute("volcano_map",volcanoAtomicWGSL, (app.canvas.width * app.canvas.height)*4 ,true)
+
+        .addPass("sky", skyFragWGSL)
+
+        .addPass("volcanoFrag",volcanoFragWGSL) // accum visuals for volcano & heatmap
+        
+        .addPass("world", worldFragWGSL)
+
+        .addPass("meteors", meteorsFragWGSL)
+        .addCompute("flash",flashCompute,4,[])
+        .addPass("fin", finalFragWGSL)
+     
+        .main(mainFragWGSL)
+
+
+    ).run(timing);
+};
+
+start();
+

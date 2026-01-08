@@ -89,7 +89,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 }
             }
         }
-        `, HEATMAP_SIZE)
+        `, HEATMAP_SIZE,true)
 
         .addPass("streaks", /*wgsl*/`
         @fragment fn main(in: VSOut) -> @location(0) vec4f {

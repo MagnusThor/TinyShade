@@ -17,7 +17,7 @@ const config = {
     "minifySyntax": true,
     "mangleExternalBindings": false,
     "preserveUniformStructTypes": true,
-    "keepNames": ["Uniforms", "u"]
+    "keepNames": ["Uniforms", "u"," ##WORKGROUP_SIZE"]
 };
 
 // 3. Main Execution

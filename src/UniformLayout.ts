@@ -22,22 +22,27 @@ export class UniformLayout {
     private buffer!: ArrayBuffer;
     private floatView!: Float32Array;
 
-    // Fast-access maps to avoid string searching in the render loop
     private setters: Map<string, (val: any) => void> = new Map();
     private dynamicUpdates: Array<() => void> = [];
 
     private isBuilt = false;
     private _currentOffset = 0;
-    private frameCount = 0;
-    private currentTime = 0;
+
+    public frameCount = 0;
+    public currentTime = 0;
+    public previousTime: number = 0
+
+    get uniformEntries() { return this.entries; }
 
     constructor(initialResolution: number[]) {
-        // Register standard demoscene globals
         this.addUniform({ name: "resolution", value: initialResolution });
         this.addUniform({ name: "time", value: 0 });
+        this.addUniform({ name: "deltaTime", value: 0 });
         this.addUniform({ name: "sceneId", value: 0 });
         this.addUniform({ name: "progress", value: 0 });
         this.addUniform({ name: "flags", value: 0 });
+        this.addUniform({ name: "frame", value: 0 });
+
     }
 
     /**
@@ -49,7 +54,6 @@ export class UniformLayout {
 
         const { type, size, align } = this.inferType(value);
 
-        // WGSL Alignment Rule: The offset must be a multiple of the alignment
         this._currentOffset = Math.ceil(this._currentOffset / align) * align;
 
         this.entries.push({
@@ -71,7 +75,6 @@ export class UniformLayout {
     build() {
         if (this.isBuilt) return;
 
-        // Final buffer size must be a multiple of 16 bytes
         const totalSize = Math.ceil(this._currentOffset / 16) * 16;
         this.buffer = new ArrayBuffer(totalSize);
         this.floatView = new Float32Array(this.buffer);
@@ -79,24 +82,22 @@ export class UniformLayout {
         for (const e of this.entries) {
             const idx = e.offset / 4;
 
-            // Create a specialized closure for setting this specific memory slot
             const setter = (val: any) => {
                 const resolved = typeof val === "function" ? val(this.currentTime, this.frameCount) : val;
                 if (typeof resolved === "number") {
                     this.floatView[idx] = resolved;
                 } else {
-                    // Optimized set for vec2, vec3, vec4
                     this.floatView.set(resolved, idx);
                 }
             };
 
             this.setters.set(e.name, setter);
 
-            // If it's a dynamic function, queue it for the update loop
             if (typeof e.value === "function") {
                 this.dynamicUpdates.push(() => setter(e.value));
             } else {
-                setter(e.value); // Initial value
+
+                setter(e.value);
             }
         }
 
@@ -111,39 +112,43 @@ export class UniformLayout {
         this.currentTime = time;
         this.frameCount++;
 
-        // This actually writes the new time into the floatView/ArrayBuffer
+        const dt = time - this.previousTime;
+        this.previousTime = time;
+
         this.setters.get("time")?.(time);
+        this.setters.get("deltaTime")?.(dt);
+        this.setters.get("frame")?.(this.frameCount);
+
 
         for (const update of this.dynamicUpdates) {
             update();
+
         }
     }
 
     /**
      * Sequencer-specific update for scene management.
      */
-  updateSequencer(sceneId: number, progress: number, flags: number) {
-    if (!this.isBuilt) this.build();
-    
-    // Get the pre-compiled setter functions and execute them
-    const setId = this.setters.get("sceneId");
-    const setProg = this.setters.get("progress");
-    const setFlags = this.setters.get("flags");
+    updateSequencer(sceneId: number, progress: number, flags: number) {
+        if (!this.isBuilt) this.build();
 
-    if (setId) setId(sceneId);
-    if (setProg) setProg(progress);
-    if (setFlags) setFlags(flags);
-    
-    if(this.entries){
+        const setId = this.setters.get("sceneId");
+        const setProg = this.setters.get("progress");
+        const setFlags = this.setters.get("flags");
 
-        
-    //console.log("Buffer SceneId Index:", this.entries.find(e => e.name === 'sceneId')?.offset / 4);
+        if (setId) setId(sceneId);
+        if (setProg) setProg(progress);
+        if (setFlags) setFlags(flags);
 
-    console.log("Value in Buffer:", this.floatView[this.entries.find(e => e.name === 'sceneId')!.offset / 4]);
+        if (this.entries) {
+
+
+
+            console.log("Value in Buffer:", this.floatView[this.entries.find(e => e.name === 'sceneId')!.offset / 4]);
+        }
+
     }
-}
 
-    // --- Getters ---
 
     get byteSize(): number {
         if (!this.isBuilt) this.build();
@@ -164,7 +169,6 @@ export class UniformLayout {
      * Resolves WGSL types based on the input data format.
      */
     private inferType(value: UniformValue) {
-        // If it's a function, run it once with 0 to see what it returns
         const sample = typeof value === "function" ? value(0, 0) : value;
 
         if (typeof sample === "number") {
@@ -175,11 +179,12 @@ export class UniformLayout {
             const len = sample.length;
             switch (len) {
                 case 2: return { type: "vec2f", size: 8, align: 8 };
-                case 3: return { type: "vec3f", size: 12, align: 16 }; // Vec3 requires 16-byte alignment
+                case 3: return { type: "vec3f", size: 12, align: 16 };
                 case 4: return { type: "vec4f", size: 16, align: 16 };
             }
         }
 
         throw new Error(`Unsupported uniform value type: ${typeof sample}`);
     }
+
 }

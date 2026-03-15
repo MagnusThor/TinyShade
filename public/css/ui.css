@@ -1,0 +1,276 @@
+.ui-panel {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 230px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
+    border: 0.5px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-family: monospace;
+    font-size: 12px;
+    color: #ccc;
+    user-select: none;
+    z-index: 9999;
+}
+
+.ui-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.ui-title {
+    color: #fff;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.ui-badge {
+    font-size: 10px;
+    color: #888;
+    border: 0.5px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+
+.ui-nav {
+    display: flex;
+    gap: 5px;
+    margin-left: auto;
+}
+
+.ui-btn {
+    background: none;
+    border: 0.5px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    color: #aaa;
+    padding: 2px 7px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: monospace;
+}
+
+.ui-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.ui-btn-dashed {
+    width: 100%;
+    background: none;
+    border: 0.5px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 5px;
+    color: #888;
+    padding: 5px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: monospace;
+}
+
+.ui-btn-dashed:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.ui-divider {
+    border-top: 0.5px solid rgba(255, 255, 255, 0.08);
+    margin: 8px 0;
+}
+
+.ui-section {
+    padding-top: 9px;
+    margin-bottom: 8px;
+}
+
+.ui-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.ui-axis {
+    width: 10px;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.ui-axis-x {
+    color: #E24B4A;
+}
+
+.ui-axis-y {
+    color: #1D9E75;
+}
+
+.ui-axis-z {
+    color: #378ADD;
+}
+
+.ui-axis-w {
+    color: #aaa;
+}
+
+.ui-axis-s {
+    color: #aaa;
+}
+
+.ui-val {
+    width: 40px;
+    text-align: right;
+    color: #fff;
+    font-family: monospace;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+input[type=range].ui-slider-x {
+    flex: 1;
+    accent-color: #E24B4A;
+}
+
+input[type=range].ui-slider-y {
+    flex: 1;
+    accent-color: #1D9E75;
+}
+
+input[type=range].ui-slider-z {
+    flex: 1;
+    accent-color: #378ADD;
+}
+
+input[type=range].ui-slider-s {
+    flex: 1;
+    accent-color: #aaa;
+}
+
+.ui-uniform-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.ui-uniform-name {
+    color: #fff;
+    font-size: 11px;
+}
+
+.ui-uniform-type {
+    color: #444;
+    font-size: 10px;
+}
+
+.ui-origin-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.ui-origin-row:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.ui-origin-row.active {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.ui-origin-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.ui-origin-row.active .ui-origin-dot {
+    background: #378ADD;
+}
+
+.ui-origin-idx {
+    color: #555;
+    font-size: 10px;
+    width: 36px;
+}
+
+.ui-origin-vals {
+    color: #888;
+    font-size: 11px;
+}
+
+.ui-origin-row.active .ui-origin-vals {
+    color: #fff;
+}
+
+
+.ui-toggle-section {
+    padding-top: 9px;
+}
+
+.ui-section-label {
+    font-size: 10px;
+    color: #555;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 7px;
+}
+
+.ui-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 4px 0;
+    cursor: pointer;
+}
+
+.ui-toggle-row:hover .ui-toggle-label {
+    color: #fff;
+}
+
+.ui-toggle-checkbox {
+    display: none;
+}
+
+.ui-toggle-track {
+    width: 28px;
+    height: 15px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.12);
+    border: 0.5px solid rgba(255,255,255,0.18);
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+
+.ui-toggle-track::after {
+    content: "";
+    position: absolute;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #555;
+    top: 1.5px;
+    left: 2px;
+    transition: transform 0.15s, background 0.15s;
+}
+
+.ui-toggle-checkbox:checked + .ui-toggle-track {
+    background: rgba(55, 138, 221, 0.35);
+    border-color: #378ADD;
+}
+
+.ui-toggle-checkbox:checked + .ui-toggle-track::after {
+    transform: translateX(13px);
+    background: #378ADD;
+}
+
+.ui-toggle-label {
+    font-size: 11px;
+    color: #888;
+    font-family: monospace;
+    transition: color 0.1s;
+}

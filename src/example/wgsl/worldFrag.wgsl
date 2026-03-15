@@ -1,20 +1,10 @@
-fn sampleCrater(st: vec2f, r: vec2f) -> f32 {
-    let i = vec2u(st);
-    let f = fract(st);
-
-    let w = u32(r.x);
-    let h = u32(r.y);
-
-    let idx = i.y * w + i.x;
-
-    let s00 = f32(atomicLoad(&crater_map_data[idx]));
-    let s10 = f32(atomicLoad(&crater_map_data[i.y * w + (i.x + 1u) % w]));
-    let s01 = f32(atomicLoad(&crater_map_data[((i.y + 1u) % h) * w + i.x]));
-    let s11 = f32(atomicLoad(&crater_map_data[((i.y + 1u) % h) * w + (i.x + 1u) % w]));
-
-    return mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
+// worldFrag.wgsl helpers
+fn distToRay(ro: vec3f, rd: vec3f, p: vec3f) -> f32 {
+    let v = p - ro;
+    let projection = dot(v, rd);
+    if (projection < 0.0) { return length(v); }
+    return length(v - rd * projection);
 }
-
 
 @fragment
 fn main(in: VSOut) -> @location(0) vec4f {
@@ -24,86 +14,67 @@ fn main(in: VSOut) -> @location(0) vec4f {
 
     // --- CAMERA SYSTEM ---
     let T = u.time * 3.0;
-    let P = path(T);
+    let ro = path(T); // Ray Origin
     let ZZ = normalize(dpath(T) + vec3f(-0.5, 0.1, 0.0));
     let XX = normalize(cross(ZZ, vec3f(0.0, 1.0, 0.0)));
     let YY = cross(XX, ZZ);
-    let R = normalize(-p2.x * XX + p2.y * YY + fov * ZZ);
+    let rd = normalize(-p2.x * XX + p2.y * YY + fov * ZZ); // Ray Direction
 
     var O = vec3f(0.0);
     var z_dist: f32 = 0.0;
-    let Y_vec = (1.0 + R.x) * get_BY();
-    let S_col = (1.0 + R.y) * get_BW() * Y_vec;
 
+    // --- 1. ANALYTICAL METEOR GLOW (Calculated outside the loop) ---
+    // This ensures they are ALWAYS visible, even in the distance
+    var meteor_glow_total = vec3f(0.0);
+    for (var m = 0u; m < 2u; m++) {
+        let m_pos = vec3f(meteor_physics_data[m*4u], meteor_physics_data[m*4u+1u], meteor_physics_data[m*4u+2u]);
+        let m_active = meteor_physics_data[m*4u+3u];
+
+        if (m_active > 0.0) {
+            let d = distToRay(ro, rd, m_pos);
+            
+            // Atmospheric Bloom
+            let glow = 0.5 / (1.0 + pow(d, 1.5) * 0.1); 
+            meteor_glow_total += glow * vec3f(0.4, 0.7, 1.0) * 1.5;
+            
+            // Bright Core
+            let core = pow(max(0.0, 1.0 - d / 2.0), 8.0);
+            meteor_glow_total += core * vec3f(10.0);
+        }
+    }
+
+    // --- 2. RAYMARCHING (Terrain & Objects) ---
     for (var i = 0; i < 85; i++) {
-        let p_m = P + z_dist * R;
+        let p_m = ro + z_dist * rd;
         
-        if (p_m.y > 15.0 && R.y > 0.0) {
-            z_dist += p_m.y * 0.5; 
-            continue; 
-        }
-
-        // --- BILINEAR CRATER LOOKUP (Smoothes Squares) ---
-        var crater_norm: f32 = 0.0;
-        var rim: f32 = 0.0;
-        
-        if (p_m.y < 12.0) {
-            let uv_raw = (p_m.xz / WORLD_SCALE) % 1.0;
-            let uv_c = uv_raw + select(vec2f(0.0), vec2f(1.0), uv_raw < vec2f(0.0));
-            let st = uv_c * r;
-            let i_st = vec2u(st);
-            let f = fract(st);
-
-
-            let smooth_val = sampleCrater(st, r);
-
-
-            crater_norm = clamp(smooth_val / 60000.0, 0.0, 1.0);
-            rim = sin(crater_norm * 3.1415) * 1.8;
-        }
+        // Ground optimizations
+        if (p_m.y > 50.0 && rd.y > 0.0) { z_dist += p_m.y * 0.5; continue; }
 
         var p_sample = p_m;
         p_sample.y = abs(p_sample.y);
-
         let d_terrain = dfbm(p_sample);
         let pyr = dpyramid(p_sample);
-        
-        // --- CARVING LOGIC ---
-        // Subtracting pulls geometry in (Hole). Adding pushes it out (Rim).
-        let hole_shape = pow(crater_norm, 0.8) * 6.5;
-        //let displacement = hole_shape - (rim * 0.4); 
-        let displacement =
-            hole_shape * 1.0   // dig hole
-                - rim * 1.2;         // push rim upward
+        var d = min(d_terrain, pyr.x);
 
-        let limit = smoothstep(10.0, -0.5, p_m.y);
+        // Standard lighting
+        O += (1.0 + rd.y) * get_BW() * (1.0 + rd.x) * get_BY();
 
-        var d = min(d_terrain, pyr.x) - (displacement * limit);
-
-        if (p_m.y > 0.0) {
-            let base_col = get_BG();
-            let pulse = 0.9 + 0.1 * sin(u.time * 5.0);
-            let lava = vec3f(2.5, 0.45, 0.05) * pow(crater_norm, 2.5) * 10.0 * pulse;
-            let surface = mix(base_col, vec3f(0.01, 0.005, 0.008), pow(crater_norm, 1.2));
-
-            O += (surface + lava) + min(d, 9.0) * Y_vec;
-        } else {
-            O += S_col;
+        // IMPACT RENDERING
+        if (d < 1.0) {
+            let i_uv = vec2u(u32(abs(p_m.x * 10.0)) % 1024u, u32(abs(p_m.z * 10.0)) % 1024u);
+            let i_val = f32(atomicLoad(&paint_buffer_data[i_uv.y * 1024u + i_uv.x])) / 600.0;
+            if (i_val > 0.01) {
+                O += vec3f(0.1, 0.4, 1.0) * i_val * 40.0;
+            }
         }
 
-        O += smoothstep(pyr.z * 0.78, pyr.z * 0.8, abs(p_m.y)) /
-             max(pyr.x + pow(pyr.x, 4.0) * 9.0, 0.01) * get_BF();
-
-        z_dist += d * 0.5;
+        z_dist += d * 0.6;
         if (d < 1e-3 || z_dist > 180.0) { break; }
     }
 
     O *= 9e-3;
-    if (R.y > 0.0) { O *= sky_bg; }
+    O += meteor_glow_total; // Add the meteors on top of the scene
 
-   
-    let pillar_tex = textureSample(volcanoFrag, samp, in.uv).rgb;
-    O += pillar_tex * 2.8;
-
+    if (rd.y > 0.0) { O *= sky_bg; }
     return vec4f(max(O, vec3f(0.0)), 1.0);
 }

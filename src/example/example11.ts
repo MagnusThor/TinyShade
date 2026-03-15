@@ -9,25 +9,13 @@ import finalFragWGSL from './wgsl/finalFrag.wgsl';
 import mainFragWGSL from './wgsl/mainFrag.wgsl';
 
 
-import meteorsComputeWGSL from './wgsl/meteorsCompute.wgsl';
-import meteorsFragWGSL from './wgsl/meteorsFrag.wgsl';
-import crater_mapWGSL from './wgsl/cratersAtomic.wgsl';
-
 import particlesWGSL from './wgsl/particlesCompute.wgsl';
 import particleTrailsFragWGSL from './wgsl/particleTrailsFrag.wgsl';
-
-
-import volcanoCompute from './wgsl/volcanoCompute.wgsl'; 
-import volcanoAtomicWGSL from './wgsl/volcanoAtomic.wgsl'; 
-import volcanoFragWGSL from './wgsl/volcanoFrag.wgsl';
 import flashCompute from './wgsl/flashCompute.wgsl';
 
+import meteor_physicsWGSL from './wgsl/meteor_physics.wgsl'
 
 
-import { TinyShadeBake } from "../TinyShadeBake";
-import RunnerSource from "../TinyShaderRunner.ts?raw";
-
-import { minifyJS } from "../helpers/minifyJS";
 import { RollingAverage, WebGPUTiming } from "../plugins/WebGPUTiming";
 
 const start = async () => {
@@ -36,11 +24,11 @@ const start = async () => {
     const PARTICLE_COUNT = 4_000;
     const PARTICLE_STORAGE_SIZE = PARTICLE_COUNT * 4;
 
-    const ASTEROID_COUNT = 32; 
-    const PHYSICS_STORAGE_SIZE = ASTEROID_COUNT * 4; 
-    const ATOMIC_BUFFER_SIZE = app.canvas.width * app.canvas.height
+    const MAP_RES = 1024;
+    const MAP_SIZE = MAP_RES * MAP_RES
+    const METEOR_COUNT = 2;
 
-   
+
 
     const stats = document.createElement("div");
     stats.style.cssText = "position:absolute;top:10px;left:10px;color:#0f0;font-family:monospace;background:rgba(0,0,0,0.8);padding:10px;border-radius:5px;pointer-events:none;z-index:100;line-height:1.4;font-size:12px;border:1px solid #333;";
@@ -60,33 +48,45 @@ const start = async () => {
     });
 
 
-
     (await app
         .setUniforms((l) => l.addUniform({ name: "count", value: PARTICLE_COUNT })
-        .addUniform({name:"asteroids",value: 10})
+            .addUniform({ name: "meteorites", value: 2 })
         )
-        .addCommon(commonWGSL)
-        .addCompute("physics",meteorsComputeWGSL, PHYSICS_STORAGE_SIZE )
-        .addAtomicCompute("crater_map", crater_mapWGSL, ATOMIC_BUFFER_SIZE ,false)
-        
-        .addCompute("particles", particlesWGSL, PARTICLE_STORAGE_SIZE)
-        .addPass("particleTrails", particleTrailsFragWGSL)
-        
-        .addCompute("volcano",volcanoCompute, 1000 * 4)
-        
-        .addAtomicCompute("volcano_map",volcanoAtomicWGSL, (app.canvas.width * app.canvas.height)*4 ,true)
+        .addCommon(commonWGSL) // shared code 
 
-        .addPass("sky", skyFragWGSL)
+        .addCompute("particles", particlesWGSL, PARTICLE_STORAGE_SIZE) // we dont need to consider this pass
+        .addPass("particleTrails", particleTrailsFragWGSL)  // we dont need to consider this pass
 
-        .addPass("volcanoFrag",volcanoFragWGSL) // accum visuals for volcano & heatmap
-        
-        .addPass("world", worldFragWGSL)
 
-        .addPass("meteors", meteorsFragWGSL)
-        .addCompute("flash",flashCompute,4,[])
-        .addPass("fin", finalFragWGSL)
-     
-        .main(mainFragWGSL)
+        .addCompute("meteor_physics", meteor_physicsWGSL,
+            METEOR_COUNT * 4)
+        .addAtomicCompute("paint_buffer", /*wgsl*/`
+            ##WORKGROUP_SIZE
+            fn main(@builtin(global_invocation_id) id: vec3u) {
+                let idx = id.x;
+                if (idx >= ${MAP_SIZE}u) { return; }
+
+                let val = atomicLoad(&data[idx]);
+                if (val > 0u) {
+                    // Decay by 2 units per frame. 
+                    // Since we added 800u, it takes ~400 frames (6 seconds) to fade.
+                    atomicSub(&data[idx], 8u); 
+                }
+            }
+        `, MAP_SIZE, false)
+
+
+
+        .addPass("sky", skyFragWGSL) // render bg , planet and stars etc, so i guess we can skip consider this
+
+
+        .addPass("world", worldFragWGSL, ["sky","meteor_physics", "paint_buffer"])
+
+        .addCompute("flash", flashCompute, 4, []) // just a "flash" , we can skip consider this
+
+        .addPass("fin", finalFragWGSL) // compose prior passes 
+
+        .main(mainFragWGSL) // output "texture", with some postprocessing
 
 
     ).run(timing);

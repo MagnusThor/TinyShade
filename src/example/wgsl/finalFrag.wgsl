@@ -5,17 +5,15 @@ fn main(in: VSOut) -> @location(0) vec4f {
 
     let world_tex = textureSample(world, samp, uv).rgb;
     let particle_trails = textureSample(particleTrails, samp, uv).rgb;
-    let meteor_tex = textureSample(meteors, samp, uv).rgb;
-
+   
     let ripple = sin(uv.x * 25.0 + u.time * 2.0) * 0.003;
     let reflected_uv = vec2f(uv.x + ripple, 1.0 - uv.y);
     
     let refl_trails = textureSample(particleTrails, samp, reflected_uv).rgb;
-    let refl_meteors = textureSample(meteors, samp, reflected_uv).rgb;
     
     let water_mask = smoothstep(0.46, 0.44, uv.y); 
     let water_tint = vec3f(0.02, 0.05, 0.1); 
-    let reflections = (refl_trails + refl_meteors) * vec3f(0.4, 0.6, 1.0);
+    let reflections = (refl_trails ) * vec3f(0.4, 0.6, 1.0);
 
     var color = world_tex + particle_trails;
     
@@ -27,8 +25,7 @@ fn main(in: VSOut) -> @location(0) vec4f {
 
     color = tanh_approx(color);
 
-    color += meteor_tex;
-
+   
     let final_vignette = smoothstep(1.6, 0.5, vignette_mask);
     color *= final_vignette;
 

@@ -9,6 +9,10 @@ const fov: f32 = 2.0;
 //const WORLD_SCALE : f32 = 2000.0; 
 const WORLD_SCALE: f32 = 800.0;
 
+const STATE_INACTIVE : f32 = 0.0;
+const STATE_FLYING   : f32 = 1.0;
+const STATE_HIT      : f32 = 2.0;
+
 const R_mat: mat2x2f = mat2x2f(1.2, 1.6, -1.6, 1.2);
 const GG_pos: vec3f = vec3f(-700.0, 300.0, 1000.0);
 const GG_radius: f32 = 400.0;
@@ -38,6 +42,9 @@ fn hash(p: vec2f) -> f32 {
     return fract(sin(dot(p, vec2f(12.9898, 58.233))) * 43758.5453);
 }
 
+fn hashF32(n: f32) -> f32 {
+    return fract(sin(n) * 43758.5453123);
+}
 
 fn hsv2rgb(c: vec3f) -> vec3f {
     let k = vec4f(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);

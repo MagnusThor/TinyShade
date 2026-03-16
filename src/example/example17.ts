@@ -371,7 +371,7 @@ function applyScene(app: TinyShade, sceneId: number, progress: number): void {
 const start = async () => {
     const app   = await TinyShade.create("canvas");
     const audio = new WavAudioPlugin();
-    await audio.load("/assets/song.mp3");
+    await audio.load("assets/song.mp3");
 
     const TOTAL_LENGTH_MS = 127_490;
     const seq = new TSSequencer([], TOTAL_LENGTH_MS, BPM, 4);

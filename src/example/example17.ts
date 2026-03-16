@@ -10,44 +10,13 @@ import { WavAudioPlugin } from "./WavAudioPlugin";
 import { UniformLayout } from "../UniformLayout";
 
 
+
 const FFT_SIZE = 128;
 const fftCanvas = document.createElement("canvas");
 fftCanvas.width = FFT_SIZE;
 fftCanvas.height = 1;
 const fftCtx = fftCanvas.getContext("2d")!;
 const fftImgData = fftCtx.createImageData(FFT_SIZE, 1);
-
-function mountStartButton(onPlay: () => void): void {
-    const overlay = document.getElementById("start-overlay") as HTMLDivElement | null;
-    const btn     = document.getElementById("start-btn")     as HTMLButtonElement | null;
-
-    if (!overlay || !btn) {
-        onPlay();
-        return;
-    }
-
-    const handleClick = async () => {
-        btn.removeEventListener("click", handleClick);
-
-        try {
-            const el  = document.documentElement as any;
-            const req = el.requestFullscreen
-                     ?? el.webkitRequestFullscreen
-                     ?? el.mozRequestFullScreen
-                     ?? el.msRequestFullscreen;
-            if (req) await req.call(el);
-        } catch {
-        }
-
-        overlay.classList.add("hiding");
-        overlay.addEventListener("transitionend", () => overlay.remove(), { once: true });
-
-        onPlay();
-    };
-
-    btn.addEventListener("click", handleClick);
-}
-
 
 function updateFftCanvas(bytes: Uint8Array): void {
     for (let i = 0; i < FFT_SIZE; i++) {
@@ -68,25 +37,38 @@ function getFrequencyBytes(audio: WavAudioPlugin): Uint8Array {
 }
 
 
-const CANVAS_W = 1280;
-const CANVAS_H = 720;
-const BPM = 128;
-const BEAT_MS = 60000 / BPM;
+function mountStartButton(onPlay: () => void): void {
+    const overlay = document.getElementById("start-overlay") as HTMLDivElement | null;
+    const btn     = document.getElementById("start-btn")     as HTMLButtonElement | null;
 
-interface TextWord {
-    text: string;
-    revealTime: number;
-    opacity: number;
+    if (!overlay || !btn) { onPlay(); return; }
+
+    const handleClick = async () => {
+        btn.removeEventListener("click", handleClick);
+        try {
+            const el  = document.documentElement as any;
+            const req = el.requestFullscreen ?? el.webkitRequestFullscreen
+                     ?? el.mozRequestFullScreen ?? el.msRequestFullscreen;
+            if (req) await req.call(el);
+        } catch {}
+        overlay.classList.add("hiding");
+        overlay.addEventListener("transitionend", () => overlay.remove(), { once: true });
+        onPlay();
+    };
+    btn.addEventListener("click", handleClick);
 }
 
-interface TextLine {
-    words: TextWord[];
-    y: number;
-    size: number;
-    subtitle: boolean;
-    baseAlpha: number;
-}
 
+
+const CANVAS_W = 1920;
+const CANVAS_H = 1080;
+const CORNER_W = 480;
+const CORNER_H = 220;
+const BPM      = 128;
+const BEAT_MS  = 60000 / BPM;
+
+interface TextWord { text: string; revealTime: number; opacity: number; }
+interface TextLine { words: TextWord[]; y: number; size: number; subtitle: boolean; baseAlpha: number; }
 interface TextCard {
     canvas: HTMLCanvasElement;
     ctx: CanvasRenderingContext2D;
@@ -94,35 +76,29 @@ interface TextCard {
     startTime: number;
     allRevealed: boolean;
     dirty: boolean;
+    isCorner: boolean;
 }
 
-/**
- * Build a TextCard from a line spec.
- * Each word gets a reveal time based on its sequential index across all lines
- * and the wordsPerBeat setting.
- *
- * @param lines      Array of {text, y, size, subtitle?, alpha?}
- * @param wordsPerBeat  How many words reveal per beat (can be fractional)
- * @param initialDelay  ms before first word appears (default = 1 beat)
- */
 function makeCard(
     lines: { text: string; y: number; size: number; subtitle?: boolean; alpha?: number }[],
     wordsPerBeat = 1.0,
-    initialDelay = BEAT_MS
+    initialDelay = BEAT_MS,
+    isCorner = false
 ): TextCard {
+    const w = isCorner ? CORNER_W : CANVAS_W;
+    const h = isCorner ? CORNER_H : CANVAS_H;
     const canvas = document.createElement("canvas");
-    canvas.width = CANVAS_W;
-    canvas.height = CANVAS_H;
+    canvas.width  = w;
+    canvas.height = h;
     const ctx = canvas.getContext("2d")!;
 
     const msPerWord = BEAT_MS / wordsPerBeat;
     let wordIdx = 0;
 
     const cardLines: TextLine[] = lines.map(l => ({
-        y: l.y,
-        size: l.size,
-        subtitle: l.subtitle ?? false,
-        baseAlpha: l.alpha ?? 1.0,
+        y: l.y, size: l.size,
+        subtitle:  l.subtitle  ?? false,
+        baseAlpha: l.alpha     ?? 1.0,
         words: l.text.split(" ").map(w => ({
             text: w,
             revealTime: initialDelay + wordIdx++ * msPerWord,
@@ -130,317 +106,260 @@ function makeCard(
         }))
     }));
 
-    return { canvas, ctx, lines: cardLines, startTime: 0, allRevealed: false, dirty: true };
+    return { canvas, ctx, lines: cardLines, startTime: 0, allRevealed: false, dirty: true, isCorner };
 }
 
-/**
- * Update a card's word opacities based on elapsed time.
- * Returns true if anything changed (needs redraw).
- */
 function tickCard(card: TextCard, audioTimeMs: number): boolean {
     const elapsed = audioTimeMs - card.startTime;
-    let changed = false;
-    let allDone = true;
-
+    let changed = false, allDone = true;
     for (const line of card.lines) {
         for (const word of line.words) {
-            const wordElapsed = elapsed - word.revealTime;
+            const we = elapsed - word.revealTime;
             let target: number;
-
-            if (wordElapsed < 0) {
-                target = 0;
-                allDone = false;
-            } else if (wordElapsed < 120) {
-                target = wordElapsed / 120;
-                allDone = false;
-            } else {
-                target = 1;
-            }
-
-            if (Math.abs(target - word.opacity) > 0.005) {
-                word.opacity = target;
-                changed = true;
-            }
+            if (we < 0)        { target = 0;       allDone = false; }
+            else if (we < 120) { target = we / 120; allDone = false; }
+            else               { target = 1; }
+            if (Math.abs(target - word.opacity) > 0.005) { word.opacity = target; changed = true; }
         }
     }
-
-    if (!card.allRevealed && allDone) {
-        card.allRevealed = true;
-        changed = true;
-    }
-
+    if (!card.allRevealed && allDone) { card.allRevealed = true; changed = true; }
     return changed;
 }
 
-/**
- * Redraw a card onto its canvas.
- * Words are laid out with measured spacing so they flow naturally.
- */
 function drawCard(card: TextCard, masterAlpha: number): void {
     const { ctx } = card;
-    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+    const w = card.canvas.width;
+    const h = card.canvas.height;
+    ctx.clearRect(0, 0, w, h);
 
     for (const line of card.lines) {
-        const weight = line.subtitle ? "300" : "bold";
-        ctx.font = `${weight} ${line.size}px Inter, system-ui, sans-serif`;
+        ctx.font = `${line.subtitle ? "300" : "bold"} ${line.size}px Inter, system-ui, sans-serif`;
 
-        const totalWidth = line.words.reduce((acc, w, i) => {
-            const space = i < line.words.length - 1 ? ctx.measureText(" ").width : 0;
-            return acc + ctx.measureText(w.text).width + space;
-        }, 0);
+        const totalWidth = line.words.reduce((acc, wd, i) =>
+            acc + ctx.measureText(wd.text).width + (i < line.words.length - 1 ? ctx.measureText(" ").width : 0), 0);
 
-        let x = (CANVAS_W - totalWidth) / 2;
+        let x = card.isCorner
+            ? w - totalWidth - 12
+            : (w - totalWidth) / 2;
 
         for (let wi = 0; wi < line.words.length; wi++) {
-            const word = line.words[wi];
+            const word  = line.words[wi];
             const alpha = word.opacity * line.baseAlpha * masterAlpha;
-            if (alpha < 0.001) {
-                x += ctx.measureText(word.text).width;
-                if (wi < line.words.length - 1) x += ctx.measureText(" ").width;
-                continue;
+            const ww    = ctx.measureText(word.text).width;
+            if (alpha > 0.001) {
+                ctx.save();
+                ctx.globalAlpha  = alpha;
+                ctx.fillStyle    = "white";
+                ctx.textBaseline = "middle";
+                ctx.textAlign    = "left";
+                ctx.shadowColor  = "rgba(80, 200, 255, 0.5)";
+                ctx.shadowBlur   = line.subtitle ? 6 : 18;
+                ctx.fillText(word.text, x, line.y);
+                ctx.restore();
             }
-
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = "white";
-            ctx.textBaseline = "middle";
-            ctx.textAlign = "left";
-            ctx.shadowColor = "rgba(80, 200, 255, 0.6)";
-            ctx.shadowBlur = line.subtitle ? 8 : 28;
-            ctx.fillText(word.text, x, line.y);
-            ctx.restore();
-
-            x += ctx.measureText(word.text).width;
-            if (wi < line.words.length - 1) x += ctx.measureText(" ").width;
+            x += ww + (wi < line.words.length - 1 ? ctx.measureText(" ").width : 0);
         }
     }
 }
+
 
 
 const cards = {
     titleA: makeCard([
-        { text: "Lattice of Light", y: 195, size: 64 },
+        { text: "Lattice of Light",               y: 195, size: 64 },
         { text: "a Fruit of the Loom production", y: 272, size: 24, subtitle: true, alpha: 0.55 },
     ], 0.6, BEAT_MS * 2),
 
     titleB: makeCard([
-        { text: "There is a wonderfully weird", y: 148, size: 28, subtitle: true, alpha: 0.85 },
-        { text: "but real world out there,", y: 190, size: 28, subtitle: true, alpha: 0.85 },
-        { text: "and we are a part of it.", y: 232, size: 28, subtitle: true, alpha: 0.85 },
-        { text: "— Ulf Danielsson", y: 292, size: 20, subtitle: true, alpha: 0.45 },
+        { text: "There is a wonderfully weird",   y: 148, size: 28, subtitle: true, alpha: 0.85 },
+        { text: "but real world out there,",      y: 190, size: 28, subtitle: true, alpha: 0.85 },
+        { text: "and we are a part of it.",       y: 232, size: 28, subtitle: true, alpha: 0.85 },
+        { text: "— Ulf Danielsson",               y: 292, size: 20, subtitle: true, alpha: 0.45 },
     ], 1.5, BEAT_MS),
 
     credits: makeCard([
-        { text: "CODE   Magnus Thor", y: 160, size: 32, subtitle: true },
-        { text: "MUSIC  Virgill", y: 215, size: 32, subtitle: true },
-        { text: "DIRECTION  Magnus Thor", y: 270, size: 32, subtitle: true },
-        { text: "greetings to all friends...", y: 340, size: 20, subtitle: true, alpha: 0.5 },
+        { text: "CODE   Magnus Thor",             y: 160, size: 32, subtitle: true },
+        { text: "MUSIC  Virgill",                 y: 215, size: 32, subtitle: true },
+        { text: "DIRECTION  Magnus Thor",         y: 270, size: 32, subtitle: true },
+        { text: "greetings to all friends...",    y: 340, size: 20, subtitle: true, alpha: 0.5 },
     ], 1.0, BEAT_MS),
+
+    fact2: makeCard([
+        { text: "Right now,",                     y:  38, size: 15, subtitle: true,  alpha: 0.55 },
+        { text: "65 billion neutrinos",           y:  72, size: 22, subtitle: false, alpha: 0.90 },
+        { text: "from the sun",                   y: 104, size: 15, subtitle: true,  alpha: 0.65 },
+        { text: "pass through your hand",         y: 134, size: 15, subtitle: true,  alpha: 0.65 },
+        { text: "every second.",                  y: 162, size: 15, subtitle: true,  alpha: 0.55 },
+    ], 1.5, BEAT_MS * 2, true),
+
+    fact3: makeCard([
+        { text: "They pass through the Earth",    y:  50, size: 15, subtitle: true,  alpha: 0.65 },
+        { text: "as if it were not there.",       y:  82, size: 15, subtitle: true,  alpha: 0.65 },
+        { text: "You do not notice.",             y: 128, size: 15, subtitle: true,  alpha: 0.65 },
+        { text: "Neither do they.",               y: 168, size: 20, subtitle: false, alpha: 0.85 },
+    ], 1.2, BEAT_MS * 2, true),
+
+    fact4: makeCard([
+        { text: "Space is not empty.",            y:  42, size: 15, subtitle: true,  alpha: 0.60 },
+        { text: "It is woven from",               y:  74, size: 15, subtitle: true,  alpha: 0.60 },
+        { text: "quantum fields",                 y: 106, size: 22, subtitle: false, alpha: 0.88 },
+        { text: "that stretch across",            y: 140, size: 15, subtitle: true,  alpha: 0.60 },
+        { text: "the entire universe.",           y: 168, size: 15, subtitle: true,  alpha: 0.55 },
+    ], 1.3, BEAT_MS * 3, true),
+
+    fact5: makeCard([
+        { text: "The act of observation",         y:  52, size: 15, subtitle: true,  alpha: 0.60 },
+        { text: "changes what is observed.",      y:  82, size: 15, subtitle: true,  alpha: 0.60 },
+        { text: "We are not separate",            y: 124, size: 15, subtitle: true,  alpha: 0.60 },
+        { text: "from the world.",                y: 166, size: 20, subtitle: false, alpha: 0.85 },
+    ], 1.2, BEAT_MS * 2, true),
+
+    fact6: makeCard([
+        { text: "We are the world",               y:  68, size: 22, subtitle: false, alpha: 0.90 },
+        { text: "observing itself.",              y: 110, size: 22, subtitle: false, alpha: 0.90 },
+        { text: "— Ulf Danielsson",               y: 162, size: 14, subtitle: true,  alpha: 0.40 },
+    ], 0.9, BEAT_MS * 1.5, true),
 };
 
-let activeCard: TextCard | null = null;
+let activeCard:       TextCard | null = null;
+let activeCornerCard: TextCard | null = null;
 
 function activateCard(card: TextCard, audioTimeMs: number): void {
-    for (const line of card.lines) {
-        for (const word of line.words) {
-            word.opacity = 0;
-        }
-    }
+    for (const line of card.lines) for (const word of line.words) word.opacity = 0;
     card.allRevealed = false;
-    card.dirty = true;
-    card.startTime = audioTimeMs;
-    activeCard = card;
+    card.dirty       = true;
+    card.startTime   = audioTimeMs;
+    if (card.isCorner) activeCornerCard = card;
+    else               activeCard       = card;
 }
 
 
+
 const arr_ro = [
-    [0.0, 0.5, -5.0],
+    [0.0,  0.5, -5.0],
     [-2.2, -2.6, -5.0],
     [-0.7, -2.2, -4.0],
-    [3.0, -5.2, -3.0],
+    [3.0,  -5.2, -3.0],
     [-0.4, -0.4, -5.2],
 ];
 
-let u_ro = [...arr_ro[0]];
-let u_samples = 8;
-let u_exposure = 0.001;
-let u_showLattice = 0.0;
-let u_showSphere = 0.0;
-let u_showLights = 0.0;
-let u_showFloor = 0.0;
-let u_showFog = 1.0;
-let u_showChroma = 0.0;
-let u_showTwist = 0.0;
-let u_showFilmic = 0.0;
-let u_showVignette = 1.0;
+let u_ro            = [...arr_ro[0]];
+let u_samples       = 8;
+let u_exposure      = 0.001;
+let u_showLattice   = 0.0;
+let u_showSphere    = 0.0;
+let u_showLights    = 0.0;
+let u_showFloor     = 0.0;
+let u_showFog       = 1.0;
+let u_showChroma    = 0.0;
+let u_showTwist     = 0.0;
+let u_showFilmic    = 0.0;
+let u_showVignette  = 1.0;
 let u_particleCount = 2_000;
 let u_showParticles = 1.0;
 let u_particleSpeed = 0.2;
-let u_overlayAlpha = 1.0;
-let u_audioLow = 0.0;
-let u_audioMid = 0.0;
-let u_audioHigh = 0.0;
+let u_overlayAlpha  = 1.0;
+let u_cornerAlpha   = 0.0;
+let u_audioLow      = 0.0;
+let u_audioMid      = 0.0;
+let u_audioHigh     = 0.0;
 
-
-const clamp = (v: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
+const clamp  = (v: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
 const smooth = (t: number) => { const c = clamp(t); return c * c * (3 - 2 * c); };
-const ease = (t: number) => { const c = clamp(t); return c < 0.5 ? 2 * c * c : -1 + (4 - 2 * c) * c; };
-const lerp3 = (a: number[], b: number[], t: number) => a.map((v, i) => v + (b[i] - v) * t);
+const ease   = (t: number) => { const c = clamp(t); return c < 0.5 ? 2*c*c : -1+(4-2*c)*c; };
+const lerp3  = (a: number[], b: number[], t: number) => a.map((v, i) => v + (b[i]-v)*t);
 
-
-let lastSceneId = -1;
-let titleBShown = false;
+let lastSceneId    = -1;
+let titleBShown    = false;
 let currentAudioMs = 0;
 
 function applyScene(app: TinyShade, sceneId: number, progress: number): void {
-    const p = clamp(progress);
+    const p  = clamp(progress);
     const ep = ease(p);
 
     if (sceneId !== lastSceneId) {
         lastSceneId = sceneId;
         titleBShown = false;
-        if (sceneId === 1) activateCard(cards.titleA, currentAudioMs);
+        if      (sceneId === 1) activateCard(cards.titleA,  currentAudioMs);
         else if (sceneId === 7) activateCard(cards.credits, currentAudioMs);
-        else activeCard = null;
+        else                    activeCard = null;
+        if      (sceneId === 2) activateCard(cards.fact2, currentAudioMs);
+        else if (sceneId === 3) activateCard(cards.fact3, currentAudioMs);
+        else if (sceneId === 4) activateCard(cards.fact4, currentAudioMs);
+        else if (sceneId === 5) activateCard(cards.fact5, currentAudioMs);
+        else if (sceneId === 6) activateCard(cards.fact6, currentAudioMs);
+        else                    activeCornerCard = null;
     }
 
     switch (sceneId) {
-
         case 1: {
-            u_showLattice = 0.0;
-            u_showSphere = 0.0;
-            u_showLights = 0.0;
-            u_showFloor = 0.0;
-            u_showFog = 1.0;
-            u_showChroma = 0.0;
-            u_showTwist = 0.0;
-            u_showFilmic = 0.0;
-            u_showParticles = 1.0;
-            u_particleCount = 2_000_000;
-            u_particleSpeed = 0.2;
-            u_ro = [...arr_ro[0]];
-            u_exposure = smooth(p) * 0.8;
-            u_overlayAlpha = 1.0;
-
-            if (p >= 0.5 && !titleBShown) {
-                titleBShown = true;
-                activateCard(cards.titleB, currentAudioMs);
-            } else if (p < 0.5 && titleBShown) {
-                titleBShown = false;
-                activateCard(cards.titleA, currentAudioMs);
-            }
-
-            const sceneFade = p < 0.08 ? smooth(p / 0.08)
-                : p > 0.92 ? smooth((1 - p) / 0.08)
-                    : 1.0;
-            u_overlayAlpha = sceneFade;
+            u_showLattice = 0.0; u_showSphere = 0.0; u_showLights = 0.0; u_showFloor = 0.0;
+            u_showFog = 1.0; u_showChroma = 0.0; u_showTwist = 0.0; u_showFilmic = 0.0;
+            u_showParticles = 1.0; u_particleCount = 2_000; u_particleSpeed = 0.2;
+            u_ro = [...arr_ro[0]]; u_exposure = smooth(p) * 0.8; u_cornerAlpha = 0.0;
+            if (p >= 0.5 && !titleBShown) { titleBShown = true;  activateCard(cards.titleB, currentAudioMs); }
+            if (p <  0.5 &&  titleBShown) { titleBShown = false; activateCard(cards.titleA, currentAudioMs); }
+            u_overlayAlpha = p < 0.08 ? smooth(p / 0.08) : p > 0.92 ? smooth((1-p) / 0.08) : 1.0;
             break;
         }
-
         case 2: {
-            u_showFog = 1.0;
-            u_showChroma = 0.0;
-            u_showTwist = 0.0;
-            u_showFilmic = 0.0;
-            u_showParticles = 1.0;
-            u_showSphere = 0.0;
-            u_showLights = 0.0;
-            u_particleCount = 4_000;
-            u_particleSpeed = 0.3 + ep * 0.2;
-            u_ro = [...arr_ro[0]];
-            u_overlayAlpha = 0.0;
-            u_showFloor = smooth(p * 2.0);
+            u_showFog = 1.0; u_showChroma = 0.0; u_showTwist = 0.0; u_showFilmic = 0.0;
+            u_showParticles = 1.0; u_showSphere = 0.0; u_showLights = 0.0;
+            u_particleCount = 4_000; u_particleSpeed = 0.3 + ep * 0.2;
+            u_ro = [...arr_ro[0]]; u_overlayAlpha = 0.0;
+            u_showFloor   = smooth(p * 2.0);
             u_showLattice = smooth(clamp((p - 0.3) / 0.7));
-            u_exposure = 0.7 + ep * 0.5;
+            u_exposure    = 0.7 + ep * 0.5;
+            u_cornerAlpha = p < 0.30 ? smooth(p / 0.30) : p > 0.85 ? smooth((1-p) / 0.15) : 1.0;
             break;
         }
-
         case 3: {
-            u_showFloor = 1.0;
-            u_showLattice = 1.0;
-            u_showFog = 0.5;
-            u_showChroma = 0.0;
-            u_showTwist = 0.0;
-            u_showParticles = 1.0;
-            u_particleCount = 6_000;
-            u_particleSpeed = 0.5 + ep * 0.2;
-            u_overlayAlpha = 0.0;
-            u_showSphere = smooth(p * 2.0);
-            u_showLights = smooth(clamp((p - 0.3) / 0.7));
-            u_showFilmic = smooth(clamp((p - 0.6) / 0.4));
-            u_exposure = 1.2 + ep * 0.3;
+            u_showFloor = 1.0; u_showLattice = 1.0; u_showFog = 0.5;
+            u_showChroma = 0.0; u_showTwist = 0.0; u_showParticles = 1.0;
+            u_particleCount = 6_000; u_particleSpeed = 0.5 + ep * 0.2; u_overlayAlpha = 0.0;
+            u_showSphere = smooth(p * 2.0); u_showLights = smooth(clamp((p - 0.3) / 0.7));
+            u_showFilmic = smooth(clamp((p - 0.6) / 0.4)); u_exposure = 1.2 + ep * 0.3;
             u_ro = lerp3(arr_ro[0], arr_ro[1], ep * 0.4);
+            u_cornerAlpha = p < 0.25 ? smooth(p / 0.25) : p > 0.85 ? smooth((1-p) / 0.15) : 1.0;
             break;
         }
-
         case 4: {
-            u_showFloor = 1.0;
-            u_showLattice = 1.0;
-            u_showSphere = 1.0;
-            u_showLights = 1.0;
-            u_showFog = 0.0;
-            u_showFilmic = 1.0;
-            u_showParticles = 1.0;
-            u_particleCount = 10_000;
-            u_overlayAlpha = 0.0;
-            u_showTwist = smooth(p);
-            u_showChroma = smooth(p);
-            u_particleSpeed = 0.7 + ep * 0.8;
-            u_exposure = 1.5 + ep * 0.4;
+            u_showFloor = 1.0; u_showLattice = 1.0; u_showSphere = 1.0; u_showLights = 1.0;
+            u_showFog = 0.0; u_showFilmic = 1.0; u_showParticles = 1.0;
+            u_particleCount = 10_000; u_overlayAlpha = 0.0;
+            u_showTwist = smooth(p); u_showChroma = smooth(p);
+            u_particleSpeed = 0.7 + ep * 0.8; u_exposure = 1.5 + ep * 0.4;
             u_ro = lerp3(arr_ro[1], arr_ro[3], ease(clamp(p * 1.5)));
+            u_cornerAlpha = p < 0.35 ? smooth(p / 0.35) : p > 0.80 ? smooth((1-p) / 0.20) : 1.0;
             break;
         }
-
         case 5: {
-            u_showFloor = 1.0;
-            u_showLattice = 1.0;
-            u_showSphere = 1.0;
-            u_showLights = 1.0;
-            u_showFilmic = 1.0;
-            u_showParticles = 1.0;
-            u_particleCount = 6_000;
-            u_overlayAlpha = 0.0;
-            u_showFog = smooth(p) * 0.8;
-            u_showTwist = 1.0 - smooth(p);
-            u_showChroma = 1.0 - smooth(p * 2);
-            u_particleSpeed = 1.5 - ep * 0.8;
-            u_exposure = 1.9 - ep * 0.5;
+            u_showFloor = 1.0; u_showLattice = 1.0; u_showSphere = 1.0; u_showLights = 1.0;
+            u_showFilmic = 1.0; u_showParticles = 1.0; u_particleCount = 6_000; u_overlayAlpha = 0.0;
+            u_showFog = smooth(p) * 0.8; u_showTwist = 1.0 - smooth(p); u_showChroma = 1.0 - smooth(p * 2);
+            u_particleSpeed = 1.5 - ep * 0.8; u_exposure = 1.9 - ep * 0.5;
             u_ro = lerp3(arr_ro[3], arr_ro[2], ep);
+            u_cornerAlpha = p < 0.30 ? smooth(p / 0.30) : p > 0.80 ? smooth((1-p) / 0.20) : 1.0;
             break;
         }
-
         case 6: {
-            u_showFloor = 1.0;
-            u_showLattice = 1.0;
-            u_showSphere = 1.0;
-            u_showLights = 1.0;
-            u_showFog = 0.0;
-            u_showFilmic = 1.0;
-            u_showChroma = 1.0;
-            u_showParticles = 1.0;
-            u_particleCount = 16_000;
-            u_overlayAlpha = 0.0;
-            u_showTwist = smooth(p);
-            u_particleSpeed = 1.2 + ep * 0.6;
+            u_showFloor = 1.0; u_showLattice = 1.0; u_showSphere = 1.0; u_showLights = 1.0;
+            u_showFog = 0.0; u_showFilmic = 1.0; u_showChroma = 1.0; u_showParticles = 1.0;
+            u_particleCount = 16_000; u_overlayAlpha = 0.0;
+            u_showTwist = smooth(p); u_particleSpeed = 1.2 + ep * 0.6;
             u_exposure = 1.4 + Math.sin(p * Math.PI) * 0.8;
             u_ro = lerp3(arr_ro[2], arr_ro[4], ep);
+            u_cornerAlpha = p < 0.40 ? smooth(p / 0.40) : p > 0.90 ? smooth((1-p) / 0.10) : 1.0;
             break;
         }
-
         case 7: {
-            u_showFloor = 1.0 - smooth(p);
-            u_showLattice = 1.0 - smooth(p * 1.5);
-            u_showSphere = 1.0 - smooth(p);
-            u_showLights = 1.0 - smooth(p * 1.5);
-            u_showFog = smooth(p);
-            u_showFilmic = 1.0;
-            u_showChroma = 1.0 - smooth(p * 2);
-            u_showTwist = 0.0;
-            u_showParticles = 1.0 - smooth(p * 2);
-            u_particleCount = 4_000;
-            u_particleSpeed = 0.3;
-            u_exposure = 1.4 * (1.0 - smooth(p));
+            u_showFloor = 1.0 - smooth(p); u_showLattice = 1.0 - smooth(p * 1.5);
+            u_showSphere = 1.0 - smooth(p); u_showLights = 1.0 - smooth(p * 1.5);
+            u_showFog = smooth(p); u_showFilmic = 1.0; u_showChroma = 1.0 - smooth(p * 2);
+            u_showTwist = 0.0; u_showParticles = 1.0 - smooth(p * 2); u_particleCount = 4_000;
+            u_particleSpeed = 0.3; u_exposure = 1.4 * (1.0 - smooth(p));
             u_overlayAlpha = p < 0.08 ? smooth(p / 0.08) : 1.0;
+            u_cornerAlpha  = 0.0;
             u_ro = lerp3(arr_ro[4], arr_ro[0], ease(p));
             break;
         }
@@ -448,53 +367,54 @@ function applyScene(app: TinyShade, sceneId: number, progress: number): void {
 }
 
 
+
 const start = async () => {
-    const app = await TinyShade.create("canvas");
+    const app   = await TinyShade.create("canvas");
     const audio = new WavAudioPlugin();
-    await audio.load("assets/song.mp3");
+    await audio.load("/assets/song.mp3");
 
     const TOTAL_LENGTH_MS = 127_490;
     const seq = new TSSequencer([], TOTAL_LENGTH_MS, BPM, 4);
+    const L   = TOTAL_LENGTH_MS;
 
-    const L = TOTAL_LENGTH_MS;
     seq.timeline = [
         [seq.getUnitsFromMs(24_000, L), 0x0001, 1],
         [seq.getUnitsFromMs(16_000, L), 0x0002, 2],
         [seq.getUnitsFromMs(24_000, L), 0x0004, 3],
         [seq.getUnitsFromMs(24_000, L), 0x00FF, 4],
         [seq.getUnitsFromMs(16_000, L), 0x0008, 5],
-        [seq.getUnitsFromMs(8_000, L), 0x00FF, 6],
+        [seq.getUnitsFromMs( 8_000, L), 0x00FF, 6],
         [seq.getUnitsFromMs(15_490, L), 0x0000, 7],
         [255, 0x0000, 0],
     ];
 
     await app.addTexture("overlay", cards.titleA.canvas);
-    await app.addTexture("fft", fftCanvas);
+    await app.addTexture("corner",  cards.fact2.canvas);
+    await app.addTexture("fft",     fftCanvas);
 
-    seq.onUpdate = (state) => {
-        applyScene(app, state.sceneId, state.progress);
-    };
+    seq.onUpdate = (state) => applyScene(app, state.sceneId, state.progress);
 
     const uniforms = (l: UniformLayout) => {
-        l.addUniform({ name: "ro", value: () => u_ro });
-        l.addUniform({ name: "samples", value: () => u_samples });
-        l.addUniform({ name: "exposure", value: () => u_exposure });
+        l.addUniform({ name: "ro",            value: () => u_ro            });
+        l.addUniform({ name: "samples",       value: () => u_samples       });
+        l.addUniform({ name: "exposure",      value: () => u_exposure      });
         l.addUniform({ name: "particleCount", value: () => u_particleCount });
         l.addUniform({ name: "particleSpeed", value: () => u_particleSpeed });
-        l.addUniform({ name: "showLattice", value: () => u_showLattice });
-        l.addUniform({ name: "showSphere", value: () => u_showSphere });
-        l.addUniform({ name: "showLights", value: () => u_showLights });
-        l.addUniform({ name: "showFloor", value: () => u_showFloor });
-        l.addUniform({ name: "showFog", value: () => u_showFog });
-        l.addUniform({ name: "showChroma", value: () => u_showChroma });
-        l.addUniform({ name: "showTwist", value: () => u_showTwist });
-        l.addUniform({ name: "showFilmic", value: () => u_showFilmic });
-        l.addUniform({ name: "showVignette", value: () => u_showVignette });
+        l.addUniform({ name: "showLattice",   value: () => u_showLattice   });
+        l.addUniform({ name: "showSphere",    value: () => u_showSphere    });
+        l.addUniform({ name: "showLights",    value: () => u_showLights    });
+        l.addUniform({ name: "showFloor",     value: () => u_showFloor     });
+        l.addUniform({ name: "showFog",       value: () => u_showFog       });
+        l.addUniform({ name: "showChroma",    value: () => u_showChroma    });
+        l.addUniform({ name: "showTwist",     value: () => u_showTwist     });
+        l.addUniform({ name: "showFilmic",    value: () => u_showFilmic    });
+        l.addUniform({ name: "showVignette",  value: () => u_showVignette  });
         l.addUniform({ name: "showParticles", value: () => u_showParticles });
-        l.addUniform({ name: "overlayAlpha", value: () => u_overlayAlpha });
-        l.addUniform({ name: "audioLow", value: () => u_audioLow });
-        l.addUniform({ name: "audioMid", value: () => u_audioMid });
-        l.addUniform({ name: "audioHigh", value: () => u_audioHigh });
+        l.addUniform({ name: "overlayAlpha",  value: () => u_overlayAlpha  });
+        l.addUniform({ name: "cornerAlpha",   value: () => u_cornerAlpha   });
+        l.addUniform({ name: "audioLow",      value: () => u_audioLow      });
+        l.addUniform({ name: "audioMid",      value: () => u_audioMid      });
+        l.addUniform({ name: "audioHigh",     value: () => u_audioHigh     });
     };
 
     const pipeline = await app
@@ -505,10 +425,8 @@ const start = async () => {
         .addCommon(`
             const PI:  f32 = 3.141592654;
             const TAU: f32 = 6.283185307;
-
             fn noise3(p: vec3f) -> f32 {
-                let ip = floor(p);
-                var fp = p - ip;
+                let ip = floor(p); var fp = p - ip;
                 let s  = vec3f(7.0, 157.0, 113.0);
                 let h4 = vec4f(0.0, s.y, s.z, s.y + s.z) + dot(ip, s);
                 fp = fp * fp * (3.0 - 2.0 * fp);
@@ -686,7 +604,7 @@ const start = async () => {
             }
         `, 0)
 
-        .addCompute("computeTex1",`
+        .addCompute("computeTex1", `
             ##WORKGROUP_SIZE
             fn main(@builtin(global_invocation_id) id: vec3u) {
                 let res = u.resolution.xy;
@@ -736,82 +654,42 @@ const start = async () => {
             }
         `)
 
+        .addPass("pass_fx", `
+            @fragment fn main(in: VSOut) -> @location(0) vec4f {
+                if (u.sceneId != 1.0) {
+                    return textureSample(pass_rt, samp, in.uv);
+                }
+                let fade       = 1.0 - smoothstep(0.92, 1.0, u.progress);
+                let zoom       = 1.0 + u.progress * 0.04 * fade + u.audioLow * 0.004 * fade;
+                let zoom_uv    = (in.uv - 0.5) * zoom + 0.5;
+                let shake_x    = (u.audioLow - u.audioMid)  * 0.004 * fade;
+                let shake_y    = (u.audioMid - u.audioHigh) * 0.002 * fade;
+                let suv        = zoom_uv + vec2f(shake_x, shake_y);
+                let wide_band  = floor(suv.y / 0.10);
+                let wide_fft   = fftBin(clamp(wide_band * 6.0, 0.0, 60.0));
+                let wide_sign  = select(-1.0, 1.0, fract(wide_band * 0.618) > 0.5);
+                let wide_off   = wide_fft * wide_sign * 0.022 * fade;
+                let fine_band  = floor(suv.y / 0.025);
+                let fine_fft   = fftBin(clamp(50.0 + fract(fine_band * 0.381) * 40.0, 50.0, 90.0));
+                let fine_sign  = select(-1.0, 1.0, fract(fine_band * 1.618) > 0.5);
+                let fine_off   = fine_fft * fine_sign * 0.005 * fade;
+                let duv = vec2f(
+                    clamp(suv.x + wide_off + fine_off, 0.001, 0.999),
+                    clamp(suv.y,                       0.001, 0.999)
+                );
+                var col = textureSample(pass_rt, samp, duv).rgb;
+                if (u.overlayAlpha > 0.01) {
+                    let tx = textureSample(overlay, samp, vec2f(duv.x, 1.0 - duv.y));
+                    col = mix(col, tx.rgb, tx.a * u.overlayAlpha);
+                }
+                return vec4f(col, 1.0);
+            }
+        `)
 
-        .addPass("pass_fx",`
-    @fragment fn main(in: VSOut) -> @location(0) vec4f {
-        if (u.sceneId != 1.0) {
-            return textureSample(pass_rt, samp, in.uv);
-        }
-
-        // ── Fade: full strength until 92%, then out ────────────────────────
-        let fade = 1.0 - smoothstep(0.92, 1.0, u.progress);
-
-        // ── Zoom: slow linear push-in, no oscillation ─────────────────────
-        // Starts at 1.0, reaches 1.04 by end of scene 1.
-        // Feels like the camera is very slowly drifting forward.
-        // Audio adds a tiny per-beat micro-pulse on top (< 0.5% range).
-        let zoom_base  = 1.0 + u.progress * 0.04 * fade;
-        let zoom_pulse = u.audioLow * 0.004 * fade;
-        let zoom       = zoom_base + zoom_pulse;
-        let zoom_uv    = (in.uv - 0.5) * zoom + 0.5;
-
-        // ── Shake: very subtle, X-only drift ──────────────────────────────
-        // Not a sine wave — just a slow wander driven by low-freq audio.
-        // Keeps the frame feeling alive without rocking back and forth.
-        let shake_x = (u.audioLow - u.audioMid) * 0.004 * fade;
-        let shake_y = (u.audioMid - u.audioHigh) * 0.002 * fade;
-        let suv     = zoom_uv + vec2f(shake_x, shake_y);
-
-        // ── Block distortion: music-driven, not time-driven ───────────────
-        // Each horizontal band gets an X offset.
-        // The offset magnitude comes from the FFT bin that corresponds to
-        // that band's Y position — so different frequencies distort different
-        // vertical regions of the screen simultaneously.
-        //
-        // band_size  = height of each block in UV space
-        // bin_scale  = maps band index → FFT bin (0..127)
-        //
-        // Wide bands (0.10) for the big cinematic slabs, fine bands (0.025)
-        // for the secondary texture layer on top.
-
-        // Wide bands — driven by low/mid bins
-        let wide_band  = floor(suv.y / 0.10);
-        let wide_bin   = clamp(wide_band * 6.0, 0.0, 60.0);
-        let wide_fft   = fftBin(wide_bin);
-        // Phase stagger via golden ratio so adjacent bands pull in opposite dirs
-        let wide_sign  = select(-1.0, 1.0, fract(wide_band * 0.618) > 0.5);
-        let wide_off   = wide_fft * wide_sign * 0.022 * fade;
-
-        // Fine bands — driven by mid/high bins
-        let fine_band  = floor(suv.y / 0.025);
-        let fine_bin   = clamp(50.0 + fract(fine_band * 0.381) * 40.0, 50.0, 90.0);
-        let fine_fft   = fftBin(fine_bin);
-        let fine_sign  = select(-1.0, 1.0, fract(fine_band * 1.618) > 0.5);
-        let fine_off   = fine_fft * fine_sign * 0.005 * fade;
-
-        let duv = vec2f(
-            clamp(suv.x + wide_off + fine_off, 0.001, 0.999),
-            clamp(suv.y,                       0.001, 0.999)
-        );
-
-        // Sample distorted background
-        let bg = textureSample(pass_rt, samp, duv).rgb;
-
-        // Overlay: flip Y, apply same X distortion so text warps with scene
-        var col = bg;
-        if (u.overlayAlpha > 0.01) {
-            let overlay_uv = vec2f(duv.x, 1.0 - duv.y);
-            let tx = textureSample(overlay, samp, overlay_uv);
-            col = mix(col, tx.rgb, tx.a * u.overlayAlpha);
-        }
-
-        return vec4f(col, 1.0);
-    }
-`)
         .addPass("pass_particles", `
             @fragment fn main(in: VSOut) -> @location(0) vec4f {
-                let dots  = textureSample(computeTex1, samp, in.uv).rgb;
-                let old   = textureSample(prev_pass_particles, samp, in.uv).rgb;
+                let dots = textureSample(computeTex1, samp, in.uv).rgb;
+                let old  = textureSample(prev_pass_particles, samp, in.uv).rgb;
                 return vec4f(dots + old * 0.6, 1.0);
             }
         `)
@@ -850,11 +728,39 @@ const start = async () => {
                     col *= clamp(1.0 - dot(uvc,uvc)*2.2, 0.0, 1.0);
                 }
 
-                // Scene 1 overlay is handled in pass_fx (text gets distorted).
-                // All other scenes (credits etc) composite here cleanly.
+                // Full-screen overlay (credits — scene 7)
                 if (u.sceneId != 1.0 && u.overlayAlpha > 0.01) {
                     let tx = textureSample(overlay, samp, in.uv);
                     col = mix(col, tx.rgb, tx.a * u.overlayAlpha);
+                }
+
+                // ── Corner overlay — bottom-right, 80px margin ─────────────
+                // textureSample MUST be called outside any per-pixel branch.
+                // We always sample, then multiply by a mask that is 0 outside
+                // the region — the GPU discards the contribution, not the call.
+                //
+                // Region (screen UV, y=0 top):
+                //   x: [1 - 480/1280 - 80/1280, 1 - 80/1280] = [0.5625, 0.9375]
+                //   y: [1 - 220/720  - 80/720,  1 - 80/720 ] = [0.5833, 0.8889]
+                {
+                    let cx0 = 1.0 - (480.0/1280.0) - (80.0/1280.0);
+                    let cy0 = 1.0 - (220.0/720.0)  - (80.0/720.0);
+                    let cx1 = cx0 + (480.0/1280.0);
+                    let cy1 = cy0 + (220.0/720.0);
+
+                    // 1.0 inside region, 0.0 outside — no branch
+                    let mask = step(cx0, fuv.x) * step(fuv.x, cx1)
+                             * step(cy0, fuv.y) * step(fuv.y, cy1);
+
+                    // Remap to [0,1] within the corner box, flip Y for Canvas-2D
+                    let cuv = vec2f(
+                        (fuv.x - cx0) / (cx1 - cx0),
+                        1.0 - (fuv.y - cy0) / (cy1 - cy0)
+                    );
+
+                    // Always sample — mask zeroes contribution outside region
+                    let ctx = textureSample(corner, samp, cuv);
+                    col = mix(col, ctx.rgb, ctx.a * u.cornerAlpha * mask);
                 }
 
                 return vec4f(col, 1.0);
@@ -869,29 +775,32 @@ const start = async () => {
             const bytes = getFrequencyBytes(audio);
             updateFftCanvas(bytes);
             app.updateTexture("fft", fftCanvas);
-
-            const fd = audio.getFrequencyData();
-            u_audioLow = u_audioLow * 0.7 + fd.low * 0.3;
-            u_audioMid = u_audioMid * 0.7 + fd.mid * 0.3;
+            const fd    = audio.getFrequencyData();
+            u_audioLow  = u_audioLow  * 0.7 + fd.low  * 0.3;
+            u_audioMid  = u_audioMid  * 0.7 + fd.mid  * 0.3;
             u_audioHigh = u_audioHigh * 0.7 + fd.high * 0.3;
         }
 
         if (activeCard) {
-            const changed = tickCard(activeCard, currentAudioMs);
-            if (changed) {
+            if (tickCard(activeCard, currentAudioMs)) {
                 drawCard(activeCard, 1.0);
                 app.updateTexture("overlay", activeCard.canvas);
+            }
+        }
+
+        if (activeCornerCard) {
+            if (tickCard(activeCornerCard, currentAudioMs)) {
+                drawCard(activeCornerCard, 1.0);
+                app.updateTexture("corner", activeCornerCard.canvas);
             }
         }
 
         cb(t);
     });
 
-
     mountStartButton(async () => {
-   await pipeline.run();
+        await pipeline.run();
     });
- 
 };
 
 start();

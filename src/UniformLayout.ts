@@ -140,12 +140,7 @@ export class UniformLayout {
         if (setProg) setProg(progress);
         if (setFlags) setFlags(flags);
 
-        if (this.entries) {
-
-
-
-            console.log("Value in Buffer:", this.floatView[this.entries.find(e => e.name === 'sceneId')!.offset / 4]);
-        }
+      
 
     }
 

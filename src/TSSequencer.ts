@@ -1,4 +1,6 @@
 export class TSSequencer {
+    onUpdate?: (state: { sceneId: number; progress: number; flags: number }) => void;
+
     constructor(
         public timeline: any[][], 
         public L: number = 170000,
@@ -47,6 +49,14 @@ export class TSSequencer {
 
         const activeScene = this.timeline[cursor];
         const duration = activeScene[0];
+
+        const state = {
+            progress: Math.min(Math.max(0, localTime / duration), 1),
+            flags: activeScene[1],
+            sceneId: activeScene[2]
+        };
+
+        this.onUpdate?.(state);  
         
         return {
             progress: Math.min(Math.max(0, localTime / duration), 1),

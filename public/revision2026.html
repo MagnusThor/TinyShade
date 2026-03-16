@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lattice of Light</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #000;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    canvas#canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* ── Start overlay ── */
+    #start-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 36px;
+      z-index: 100;
+      background: #000;
+      transition: opacity 0.9s ease;
+    }
+
+    #start-overlay.hiding {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #start-title {
+      font-family: 'Courier New', monospace;
+      font-size: clamp(11px, 1.3vw, 16px);
+      letter-spacing: 0.45em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.22);
+      font-weight: 400;
+    }
+
+    /* Play button — circle with triangle */
+    #start-btn {
+      position: relative;
+      width: 88px;
+      height: 88px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Outer pulse ring */
+    #start-btn::before {
+      content: '';
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      animation: ring-pulse 3s ease-in-out infinite;
+    }
+
+    /* Middle ring */
+    #start-btn::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.30);
+      transition: border-color 0.25s ease, transform 0.25s ease;
+    }
+
+    #start-btn:hover::after {
+      border-color: rgba(255, 255, 255, 0.65);
+      transform: scale(1.08);
+    }
+
+    #start-btn svg {
+      position: absolute;
+      top: 50%;
+      left: 53%;
+      transform: translate(-50%, -50%);
+      transition: transform 0.25s ease, opacity 0.25s ease;
+      opacity: 0.65;
+    }
+
+    #start-btn:hover svg {
+      opacity: 1.0;
+      transform: translate(-44%, -50%) scale(1.08);
+    }
+
+    #start-btn:active::after {
+      transform: scale(0.96);
+    }
+
+    @keyframes ring-pulse {
+      0%, 100% { transform: scale(1);    opacity: 0.5; }
+      50%       { transform: scale(1.22); opacity: 0.0; }
+    }
+
+    #start-hint {
+      font-family: 'Courier New', monospace;
+      font-size: clamp(9px, 0.85vw, 11px);
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.15);
+      animation: hint-fade 3s ease-in-out infinite;
+    }
+
+    @keyframes hint-fade {
+      0%, 100% { opacity: 0.6; }
+      50%       { opacity: 1.0; }
+    }
+  </style>
+</head>
+<body>
+
+  <canvas id="canvas" width="1280" height="720"></canvas>
+
+  <div id="start-overlay">
+    <span id="start-title">Lattice of Light</span>
+
+    <button id="start-btn" aria-label="Play demo">
+      <svg width="20" height="24" viewBox="0 0 20 24" fill="none">
+        <path d="M2 1.5L18.5 12L2 22.5V1.5Z"
+              fill="none"
+              stroke="rgba(255,255,255,0.85)"
+              stroke-width="1.2"
+              stroke-linejoin="round"/>
+      </svg>
+    </button>
+
+    <span id="start-hint">click to play</span>
+  </div>
+
+  <script type="module" src="js/example17-bundle.js"></script>
+</body>
+</html>

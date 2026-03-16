@@ -400,6 +400,7 @@ export class TinyShade {
 
             if (this.sequencer) {
                 const state = this.sequencer.update(time);
+             
                 this.uniforms.updateSequencer(state.sceneId, state.progress, state.flags);
             }
             this.uniforms.update(time);
@@ -508,5 +509,61 @@ export class TinyShade {
         return this;
     }
 
+
+    /**
+ * Updates the pixel data of an already-registered global texture in-place.
+ *
+ * The GPUTexture object itself is reused — no reallocation, no pipeline
+ * recompile. It simply re-uploads the source image to the same texture slot
+ * via copyExternalImageToTexture, which is the same path used by addTexture.
+ *
+ * Typical use: swapping Canvas-2D overlays (title card → credits) each scene
+ * without touching the GPU pipeline.
+ *
+ * @param name  The name used when addTexture() was first called.
+ * @param src   New image source — HTMLCanvasElement, HTMLImageElement, or URL string.
+ *
+ * @throws If the name was never registered with addTexture().
+ * @throws If the new source dimensions differ from the original texture size
+ *         (GPUTexture size is fixed at creation; resize requires addTexture).
+ */
+    async updateTexture(name: string, src: string | HTMLImageElement | HTMLCanvasElement): Promise<this> {
+        const existing = this.globalTextures.get(name);
+        if (!existing) {
+            throw new Error(
+                `TinyShade.updateTexture: no texture named "${name}" found. ` +
+                `Call addTexture("${name}", ...) first.`
+            );
+        }
+
+        let source: ImageBitmap | HTMLCanvasElement | HTMLImageElement;
+        if (typeof src === 'string') {
+            const img = new Image();
+            img.src = src;
+            await img.decode();
+            source = await createImageBitmap(img);
+        } else {
+            source = src;
+        }
+
+        // Validate dimensions — GPUTexture size cannot change after creation.
+        const w = existing.width;
+        const h = existing.height;
+        if (source.width !== w || source.height !== h) {
+            throw new Error(
+                `TinyShade.updateTexture: size mismatch for "${name}". ` +
+                `Existing texture is ${w}×${h}, new source is ${source.width}×${source.height}. ` +
+                `Call addTexture() again to register a differently-sized texture.`
+            );
+        }
+
+        this.device.queue.copyExternalImageToTexture(
+            { source },
+            { texture: existing },
+            [w, h]
+        );
+
+        return this;
+    }
 
 }

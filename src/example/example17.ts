@@ -2,6 +2,28 @@
  * ──────────────────────────────────────────────────────────────────────────
  *  Lattice of Light — a Fruit of the Loom production
  * ──────────────────────────────────────────────────────────────────────────
+ *
+ *  Timeline (beat-locked to ~129 BPM, 127 494 ms total):
+ *
+ *    Scene 1 — Title / Intro        0 ms –  23 928 ms   (23.9 s)
+ *    Scene 2 — Neutrinos        23 928 ms –  39 868 ms   (15.9 s)
+ *    Scene 3 — Through Earth    39 868 ms –  63 773 ms   (23.9 s)
+ *    Scene 4 — Quantum Fields   63 773 ms –  88 142 ms   (24.4 s)
+ *    Scene 5 — Observer         88 142 ms –  97 869 ms   ( 9.7 s)  ← 2 s donated to s6
+ *    Scene 6 — World Itself     97 869 ms – 104 083 ms   ( 6.2 s)  ← gained 2 s
+ *    Scene 7 — Black Hole      104 083 ms – 112 047 ms   ( 8.0 s)
+ *    Scene 8 — Credits         112 047 ms – 127 494 ms   (15.4 s)
+ *
+ *  Fixes applied vs previous version:
+ *    • Scene 7 corner card fade pushed to p>0.75 so quote lands fully
+ *    • BH accretion ring blooms at p=0 but warp drain delayed to p=0.25,
+ *      giving a clear "here is the black hole" moment before consumption
+ *    • Scene 5 shortened by 2 s, scene 6 gains those 2 s for quote breathing
+ *    • pass_rt accumulation factor is audio-reactive (loud bass = sharper)
+ *    • Scene 3 nodePull reduced to 0.15, per-particle flow phase added
+ *    • Greetings line in credits appears at p≥0.45 (while music still audible)
+ *    • Credits scene holds a ghost warp (bhWarp=0.04) for subtle spacetime shimmer
+ * ──────────────────────────────────────────────────────────────────────────
  */
 
 import { TinyShade } from "../TinyShade";
@@ -11,11 +33,12 @@ import { UniformLayout } from "../UniformLayout";
 
 
 
-const FFT_SIZE = 128;
-const fftCanvas = document.createElement("canvas");
-fftCanvas.width = FFT_SIZE;
+// ── FFT canvas ──────────────────────────────────────────────────────────────
+const FFT_SIZE   = 128;
+const fftCanvas  = document.createElement("canvas");
+fftCanvas.width  = FFT_SIZE;
 fftCanvas.height = 1;
-const fftCtx = fftCanvas.getContext("2d")!;
+const fftCtx     = fftCanvas.getContext("2d")!;
 const fftImgData = fftCtx.createImageData(FFT_SIZE, 1);
 
 function updateFftCanvas(bytes: Uint8Array): void {
@@ -31,18 +54,17 @@ function updateFftCanvas(bytes: Uint8Array): void {
 
 function getFrequencyBytes(audio: WavAudioPlugin): Uint8Array {
     const analyser = (audio as any).analyserNode as AnalyserNode;
-    const bytes = new Uint8Array(analyser.frequencyBinCount);
+    const bytes    = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteFrequencyData(bytes);
     return bytes;
 }
 
 
+// ── Start / fullscreen ──────────────────────────────────────────────────────
 function mountStartButton(onPlay: () => void): void {
     const overlay = document.getElementById("start-overlay") as HTMLDivElement | null;
     const btn     = document.getElementById("start-btn")     as HTMLButtonElement | null;
-
     if (!overlay || !btn) { onPlay(); return; }
-
     const handleClick = async () => {
         btn.removeEventListener("click", handleClick);
         try {
@@ -60,13 +82,28 @@ function mountStartButton(onPlay: () => void): void {
 
 
 
-const CANVAS_W = 1920;
-const CANVAS_H = 1080;
-const CORNER_W = 480;
-const CORNER_H = 220;
-const BPM      = 128;
-const BEAT_MS  = 60000 / BPM;
+// ── Canvas dimensions ───────────────────────────────────────────────────────
+const CANVAS_W = 1280;
+const CANVAS_H = 720;
 
+// Corner fractions — resolution-independent.
+// At 1280×720: width=480px, height=240px, margins=80px each side.
+const CORNER_FRAC_W   = 480 / 1280;
+const CORNER_FRAC_H   = 240 / 720;
+const CORNER_MARGIN_X = 80  / 1280;
+const CORNER_MARGIN_Y = 80  / 720;
+
+const BPM     = 129;
+const BEAT_MS = 60000 / BPM;
+
+// Logical canvas sizes for 2D text rendering
+const OVERLAY_W = CANVAS_W;
+const OVERLAY_H = CANVAS_H;
+const CORNER_W  = Math.round(CANVAS_W * CORNER_FRAC_W);   // 300 px
+const CORNER_H  = Math.round(CANVAS_H * CORNER_FRAC_H);   // 150 px
+
+
+// ── Text-card system ────────────────────────────────────────────────────────
 interface TextWord { text: string; revealTime: number; opacity: number; }
 interface TextLine { words: TextWord[]; y: number; size: number; subtitle: boolean; baseAlpha: number; }
 interface TextCard {
@@ -85,8 +122,8 @@ function makeCard(
     initialDelay = BEAT_MS,
     isCorner = false
 ): TextCard {
-    const w = isCorner ? CORNER_W : CANVAS_W;
-    const h = isCorner ? CORNER_H : CANVAS_H;
+    const w = isCorner ? CORNER_W : OVERLAY_W;
+    const h = isCorner ? CORNER_H : OVERLAY_H;
     const canvas = document.createElement("canvas");
     canvas.width  = w;
     canvas.height = h;
@@ -116,8 +153,8 @@ function tickCard(card: TextCard, audioTimeMs: number): boolean {
         for (const word of line.words) {
             const we = elapsed - word.revealTime;
             let target: number;
-            if (we < 0)        { target = 0;       allDone = false; }
-            else if (we < 120) { target = we / 120; allDone = false; }
+            if (we < 0)        { target = 0;        allDone = false; }
+            else if (we < 120) { target = we / 120;  allDone = false; }
             else               { target = 1; }
             if (Math.abs(target - word.opacity) > 0.005) { word.opacity = target; changed = true; }
         }
@@ -139,7 +176,7 @@ function drawCard(card: TextCard, masterAlpha: number): void {
             acc + ctx.measureText(wd.text).width + (i < line.words.length - 1 ? ctx.measureText(" ").width : 0), 0);
 
         let x = card.isCorner
-            ? w - totalWidth - 12
+            ? w - totalWidth - Math.round(w * 0.04)
             : (w - totalWidth) / 2;
 
         for (let wi = 0; wi < line.words.length; wi++) {
@@ -164,7 +201,12 @@ function drawCard(card: TextCard, masterAlpha: number): void {
 
 
 
+// ── All text cards ──────────────────────────────────────────────────────────
+// Corner cards are laid out in CORNER_W × CORNER_H space (300 × 150 px).
+// Overlay cards are laid out in OVERLAY_W × OVERLAY_H space (800 × 450 px).
 const cards = {
+
+    // Scene 1 — full-screen
     titleA: makeCard([
         { text: "Lattice of Light",               y: 195, size: 64 },
         { text: "a Fruit of the Loom production", y: 272, size: 24, subtitle: true, alpha: 0.55 },
@@ -177,48 +219,74 @@ const cards = {
         { text: "— Ulf Danielsson",               y: 292, size: 20, subtitle: true, alpha: 0.45 },
     ], 1.5, BEAT_MS),
 
-    credits: makeCard([
-        { text: "CODE   Magnus Thor",             y: 160, size: 32, subtitle: true },
-        { text: "MUSIC  Virgill",                 y: 215, size: 32, subtitle: true },
-        { text: "DIRECTION  Magnus Thor",         y: 270, size: 32, subtitle: true },
-        { text: "greetings to all friends...",    y: 340, size: 20, subtitle: true, alpha: 0.5 },
-    ], 1.0, BEAT_MS),
-
+    // Scene 2 — corner (300 × 150)
     fact2: makeCard([
-        { text: "Right now,",                     y:  38, size: 15, subtitle: true,  alpha: 0.55 },
-        { text: "65 billion neutrinos",           y:  72, size: 22, subtitle: false, alpha: 0.90 },
-        { text: "from the sun",                   y: 104, size: 15, subtitle: true,  alpha: 0.65 },
-        { text: "pass through your hand",         y: 134, size: 15, subtitle: true,  alpha: 0.65 },
-        { text: "every second.",                  y: 162, size: 15, subtitle: true,  alpha: 0.55 },
+        { text: "Right now,",              y:  18, size:  9, subtitle: true,  alpha: 0.55 },
+        { text: "65 billion neutrinos",    y:  40, size: 15, subtitle: false, alpha: 0.90 },
+        { text: "from the sun",            y:  62, size:  9, subtitle: true,  alpha: 0.65 },
+        { text: "pass through your hand",  y:  82, size:  9, subtitle: true,  alpha: 0.65 },
+        { text: "every second.",           y: 100, size:  9, subtitle: true,  alpha: 0.55 },
     ], 1.5, BEAT_MS * 2, true),
 
+    // Scene 3 — corner
     fact3: makeCard([
-        { text: "They pass through the Earth",    y:  50, size: 15, subtitle: true,  alpha: 0.65 },
-        { text: "as if it were not there.",       y:  82, size: 15, subtitle: true,  alpha: 0.65 },
-        { text: "You do not notice.",             y: 128, size: 15, subtitle: true,  alpha: 0.65 },
-        { text: "Neither do they.",               y: 168, size: 20, subtitle: false, alpha: 0.85 },
+        { text: "They pass through the Earth",    y:  30, size:  9, subtitle: true,  alpha: 0.65 },
+        { text: "as if it were not there.",       y:  50, size:  9, subtitle: true,  alpha: 0.65 },
+        { text: "You do not notice.",             y:  78, size:  9, subtitle: true,  alpha: 0.65 },
+        { text: "Neither do they.",               y: 102, size: 12, subtitle: false, alpha: 0.85 },
     ], 1.2, BEAT_MS * 2, true),
 
+    // Scene 4 — corner
     fact4: makeCard([
-        { text: "Space is not empty.",            y:  42, size: 15, subtitle: true,  alpha: 0.60 },
-        { text: "It is woven from",               y:  74, size: 15, subtitle: true,  alpha: 0.60 },
-        { text: "quantum fields",                 y: 106, size: 22, subtitle: false, alpha: 0.88 },
-        { text: "that stretch across",            y: 140, size: 15, subtitle: true,  alpha: 0.60 },
-        { text: "the entire universe.",           y: 168, size: 15, subtitle: true,  alpha: 0.55 },
+        { text: "Space is not empty.",            y:  24, size:  9, subtitle: true,  alpha: 0.60 },
+        { text: "It is woven from",               y:  44, size:  9, subtitle: true,  alpha: 0.60 },
+        { text: "quantum fields",                 y:  66, size: 13, subtitle: false, alpha: 0.88 },
+        { text: "that stretch across",            y:  86, size:  9, subtitle: true,  alpha: 0.60 },
+        { text: "the entire universe.",           y: 104, size:  9, subtitle: true,  alpha: 0.55 },
     ], 1.3, BEAT_MS * 3, true),
 
+    // Scene 5 — corner
     fact5: makeCard([
-        { text: "The act of observation",         y:  52, size: 15, subtitle: true,  alpha: 0.60 },
-        { text: "changes what is observed.",      y:  82, size: 15, subtitle: true,  alpha: 0.60 },
-        { text: "We are not separate",            y: 124, size: 15, subtitle: true,  alpha: 0.60 },
-        { text: "from the world.",                y: 166, size: 20, subtitle: false, alpha: 0.85 },
+        { text: "The act of observation",         y:  32, size:  9, subtitle: true,  alpha: 0.60 },
+        { text: "changes what is observed.",      y:  52, size:  9, subtitle: true,  alpha: 0.60 },
+        { text: "We are not separate",            y:  76, size:  9, subtitle: true,  alpha: 0.60 },
+        { text: "from the world.",                y: 100, size: 12, subtitle: false, alpha: 0.85 },
     ], 1.2, BEAT_MS * 2, true),
 
+    // Scene 6 — corner (now 6.2 s, quote has room to breathe)
     fact6: makeCard([
-        { text: "We are the world",               y:  68, size: 22, subtitle: false, alpha: 0.90 },
-        { text: "observing itself.",              y: 110, size: 22, subtitle: false, alpha: 0.90 },
-        { text: "— Ulf Danielsson",               y: 162, size: 14, subtitle: true,  alpha: 0.40 },
+        { text: "We are the world",               y:  42, size: 13, subtitle: false, alpha: 0.90 },
+        { text: "observing itself.",              y:  66, size: 13, subtitle: false, alpha: 0.90 },
+        { text: "— Ulf Danielsson",               y:  98, size:  8, subtitle: true,  alpha: 0.40 },
     ], 0.9, BEAT_MS * 1.5, true),
+
+    // Scene 7 — corner (black hole narrative)
+    // Card fades at p>0.75 so the Danielsson attribution has time to land.
+    fact7: makeCard([
+        { text: "Not our world,",                 y:  16, size: 10, subtitle: true,  alpha: 0.65 },
+        { text: "nor neutrinos,",                 y:  33, size: 10, subtitle: true,  alpha: 0.65 },
+        { text: "can escape.",                    y:  54, size: 14, subtitle: false, alpha: 0.92 },
+        { text: "Beyond the horizon",             y:  76, size:  8, subtitle: true,  alpha: 0.55 },
+        { text: "the universe ends",              y:  91, size:  8, subtitle: true,  alpha: 0.55 },
+        { text: "its conversation",               y: 106, size:  8, subtitle: true,  alpha: 0.55 },
+        { text: "with itself.",                   y: 122, size: 11, subtitle: false, alpha: 0.80 },
+        { text: "— Ulf Danielsson",               y: 140, size:  8, subtitle: true,  alpha: 0.35 },
+    ], 1.0, BEAT_MS * 1.5, true),
+
+    // Scene 8 — credits (full-screen)
+    credits: makeCard([
+        { text: "CODE & VISUALS",  y: 118, size: 17, subtitle: true,  alpha: 0.45 },
+        { text: "Bagzy",           y: 154, size: 46, subtitle: false, alpha: 0.92 },
+        { text: "MUSIC",           y: 218, size: 17, subtitle: true,  alpha: 0.45 },
+        { text: "Virgill",         y: 254, size: 46, subtitle: false, alpha: 0.92 },
+        { text: "DIRECTION",       y: 318, size: 17, subtitle: true,  alpha: 0.45 },
+        { text: "Bagzy",           y: 354, size: 46, subtitle: false, alpha: 0.92 },
+    ], 0.7, BEAT_MS * 1.5),
+
+    // Greetings — now at p≥0.45 so it arrives while music is still faintly audible
+    greetings: makeCard([
+        { text: "greetings to all our friends out there...", y: 425, size: 17, subtitle: true, alpha: 0.36 },
+    ], 2.5, BEAT_MS * 2),
 };
 
 let activeCard:       TextCard | null = null;
@@ -235,14 +303,16 @@ function activateCard(card: TextCard, audioTimeMs: number): void {
 
 
 
+// ── Camera positions ────────────────────────────────────────────────────────
 const arr_ro = [
-    [0.0,  0.5, -5.0],
+    [ 0.0,  0.5, -5.0],
     [-2.2, -2.6, -5.0],
     [-0.7, -2.2, -4.0],
-    [3.0,  -5.2, -3.0],
+    [ 3.0, -5.2, -3.0],
     [-0.4, -0.4, -5.2],
 ];
 
+// ── Uniform state ───────────────────────────────────────────────────────────
 let u_ro            = [...arr_ro[0]];
 let u_samples       = 8;
 let u_exposure      = 0.001;
@@ -263,7 +333,15 @@ let u_cornerAlpha   = 0.0;
 let u_audioLow      = 0.0;
 let u_audioMid      = 0.0;
 let u_audioHigh     = 0.0;
+let u_showBlackHole = 0.0;
+let u_bhPulse       = 0.0;
+let u_bhWarp        = 0.0;
+let u_freezeActive  = 0.0;
+// Audio-reactive accumulation blend factor for pass_rt.
+// Base 0.75; loud bass transients reduce it toward 0.35 for sharper image.
+let u_accumBlend    = 0.75;
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
 const clamp  = (v: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
 const smooth = (t: number) => { const c = clamp(t); return c * c * (3 - 2 * c); };
 const ease   = (t: number) => { const c = clamp(t); return c < 0.5 ? 2*c*c : -1+(4-2*c)*c; };
@@ -271,96 +349,174 @@ const lerp3  = (a: number[], b: number[], t: number) => a.map((v, i) => v + (b[i
 
 let lastSceneId    = -1;
 let titleBShown    = false;
+let greetingsShown = false;
 let currentAudioMs = 0;
 
+// ── Scene logic ─────────────────────────────────────────────────────────────
 function applyScene(app: TinyShade, sceneId: number, progress: number): void {
     const p  = clamp(progress);
     const ep = ease(p);
 
     if (sceneId !== lastSceneId) {
-        lastSceneId = sceneId;
-        titleBShown = false;
+        lastSceneId    = sceneId;
+        titleBShown    = false;
+        greetingsShown = false;
+
         if      (sceneId === 1) activateCard(cards.titleA,  currentAudioMs);
-        else if (sceneId === 7) activateCard(cards.credits, currentAudioMs);
+        else if (sceneId === 8) activateCard(cards.credits, currentAudioMs);
         else                    activeCard = null;
+
         if      (sceneId === 2) activateCard(cards.fact2, currentAudioMs);
         else if (sceneId === 3) activateCard(cards.fact3, currentAudioMs);
         else if (sceneId === 4) activateCard(cards.fact4, currentAudioMs);
         else if (sceneId === 5) activateCard(cards.fact5, currentAudioMs);
         else if (sceneId === 6) activateCard(cards.fact6, currentAudioMs);
+        else if (sceneId === 7) activateCard(cards.fact7, currentAudioMs);
         else                    activeCornerCard = null;
     }
 
+    // Audio-reactive accumulation: bass transients momentarily sharpen the image,
+    // giving a nice reactive pulse on the beat without full temporal jitter.
+    u_accumBlend = clamp(0.75 - u_audioLow * 0.3, 0.35, 0.75);
+
     switch (sceneId) {
+
         case 1: {
-            u_showLattice = 0.0; u_showSphere = 0.0; u_showLights = 0.0; u_showFloor = 0.0;
+            u_showLattice = 0.0; u_showSphere = 0.0; u_showLights = 0.0; u_showFloor = 1.0;
             u_showFog = 1.0; u_showChroma = 0.0; u_showTwist = 0.0; u_showFilmic = 0.0;
             u_showParticles = 1.0; u_particleCount = 2_000; u_particleSpeed = 0.2;
-            u_ro = [...arr_ro[0]]; u_exposure = smooth(p) * 0.8; u_cornerAlpha = 0.0;
+            u_showBlackHole = 0.0; u_bhPulse = 0.0; u_bhWarp = 0.0; u_freezeActive = 0.0;
+            u_ro = [arr_ro[0][0], arr_ro[0][1] + 0.5, arr_ro[0][2] - 2.5];
+            u_exposure = smooth(p) * 0.8; u_cornerAlpha = 0.0;
             if (p >= 0.5 && !titleBShown) { titleBShown = true;  activateCard(cards.titleB, currentAudioMs); }
             if (p <  0.5 &&  titleBShown) { titleBShown = false; activateCard(cards.titleA, currentAudioMs); }
             u_overlayAlpha = p < 0.08 ? smooth(p / 0.08) : p > 0.92 ? smooth((1-p) / 0.08) : 1.0;
             break;
         }
+
         case 2: {
             u_showFog = 1.0; u_showChroma = 0.0; u_showTwist = 0.0; u_showFilmic = 0.0;
             u_showParticles = 1.0; u_showSphere = 0.0; u_showLights = 0.0;
-            u_particleCount = 4_000; u_particleSpeed = 0.3 + ep * 0.2;
-            u_ro = [...arr_ro[0]]; u_overlayAlpha = 0.0;
+            u_showBlackHole = 0.0; u_bhPulse = 0.0; u_bhWarp = 0.0; u_freezeActive = 0.0;
+            u_particleCount = 4_000; u_particleSpeed = 0.5 + ep * 0.4; u_overlayAlpha = 0.0;
             u_showFloor   = smooth(p * 2.0);
-            u_showLattice = smooth(clamp((p - 0.3) / 0.7));
-            u_exposure    = 0.7 + ep * 0.5;
+            u_showLattice = smooth(clamp((p - 0.1) / 0.9));
+            u_exposure    = 0.6 + ep * 0.7;
+            u_ro          = lerp3(arr_ro[0], arr_ro[1], ep * 0.15);
             u_cornerAlpha = p < 0.30 ? smooth(p / 0.30) : p > 0.85 ? smooth((1-p) / 0.15) : 1.0;
             break;
         }
+
         case 3: {
-            u_showFloor = 1.0; u_showLattice = 1.0; u_showFog = 0.5;
+            // nodePull reduced to 0.15 — prevents particle clustering at lattice nodes
+            u_showFloor = 1.0; u_showLattice = 1.0; u_showFog = 0.5 + smooth(p) * 0.3;
             u_showChroma = 0.0; u_showTwist = 0.0; u_showParticles = 1.0;
-            u_particleCount = 6_000; u_particleSpeed = 0.5 + ep * 0.2; u_overlayAlpha = 0.0;
-            u_showSphere = smooth(p * 2.0); u_showLights = smooth(clamp((p - 0.3) / 0.7));
-            u_showFilmic = smooth(clamp((p - 0.6) / 0.4)); u_exposure = 1.2 + ep * 0.3;
-            u_ro = lerp3(arr_ro[0], arr_ro[1], ep * 0.4);
+            u_showBlackHole = 0.0; u_bhPulse = 0.0; u_bhWarp = 0.0; u_freezeActive = 0.0;
+            u_particleCount = 6_000; u_particleSpeed = 0.5 + ep * 0.3; u_overlayAlpha = 0.0;
+            u_showSphere = smooth(p * 2.0);
+            u_showLights = smooth(clamp((p - 0.2) / 0.8));
+            u_showFilmic = smooth(clamp((p - 0.35) / 0.65));
+            u_exposure   = 1.1 + ep * 0.5;
+            u_ro         = lerp3(arr_ro[0], arr_ro[1], ep * 0.7);
             u_cornerAlpha = p < 0.25 ? smooth(p / 0.25) : p > 0.85 ? smooth((1-p) / 0.15) : 1.0;
             break;
         }
+
         case 4: {
             u_showFloor = 1.0; u_showLattice = 1.0; u_showSphere = 1.0; u_showLights = 1.0;
             u_showFog = 0.0; u_showFilmic = 1.0; u_showParticles = 1.0;
+            u_showBlackHole = 0.0; u_bhPulse = 0.0; u_bhWarp = 0.0; u_freezeActive = 0.0;
             u_particleCount = 10_000; u_overlayAlpha = 0.0;
-            u_showTwist = smooth(p); u_showChroma = smooth(p);
-            u_particleSpeed = 0.7 + ep * 0.8; u_exposure = 1.5 + ep * 0.4;
-            u_ro = lerp3(arr_ro[1], arr_ro[3], ease(clamp(p * 1.5)));
+            u_showTwist  = smooth(clamp(p / 0.5));
+            u_showChroma = smooth(clamp((p - 0.45) / 0.55));
+            u_particleSpeed = 0.8 + ep * 0.9; u_exposure = 1.4 + ep * 0.5;
+            u_ro = lerp3(arr_ro[1], arr_ro[3], ease(p));
             u_cornerAlpha = p < 0.35 ? smooth(p / 0.35) : p > 0.80 ? smooth((1-p) / 0.20) : 1.0;
             break;
         }
+
         case 5: {
+            // 9.7 s (donated 2 s to scene 6)
             u_showFloor = 1.0; u_showLattice = 1.0; u_showSphere = 1.0; u_showLights = 1.0;
-            u_showFilmic = 1.0; u_showParticles = 1.0; u_particleCount = 6_000; u_overlayAlpha = 0.0;
-            u_showFog = smooth(p) * 0.8; u_showTwist = 1.0 - smooth(p); u_showChroma = 1.0 - smooth(p * 2);
-            u_particleSpeed = 1.5 - ep * 0.8; u_exposure = 1.9 - ep * 0.5;
+            u_showFilmic = 1.0; u_showParticles = 1.0;
+            u_showBlackHole = 0.0; u_bhPulse = 0.0; u_bhWarp = 0.0; u_freezeActive = 0.0;
+            u_particleCount = 6_000; u_overlayAlpha = 0.0;
+            u_showFog    = smooth(clamp((p - 0.5) / 0.5)) * 0.8;
+            u_showTwist  = 1.0 - smooth(p);
+            u_showChroma = smooth(clamp(1.0 - p * 1.3, 0.0, 1.0));
+            u_particleSpeed = 1.4 - ep * 0.6; u_exposure = 1.8 - ep * 0.4;
             u_ro = lerp3(arr_ro[3], arr_ro[2], ep);
             u_cornerAlpha = p < 0.30 ? smooth(p / 0.30) : p > 0.80 ? smooth((1-p) / 0.20) : 1.0;
             break;
         }
+
         case 6: {
+            // 6.2 s — enough time for the Danielsson quote to reveal and sit
             u_showFloor = 1.0; u_showLattice = 1.0; u_showSphere = 1.0; u_showLights = 1.0;
             u_showFog = 0.0; u_showFilmic = 1.0; u_showChroma = 1.0; u_showParticles = 1.0;
+            u_showBlackHole = 0.0; u_bhPulse = 0.0; u_bhWarp = 0.0; u_freezeActive = 0.0;
             u_particleCount = 16_000; u_overlayAlpha = 0.0;
             u_showTwist = smooth(p); u_particleSpeed = 1.2 + ep * 0.6;
-            u_exposure = 1.4 + Math.sin(p * Math.PI) * 0.8;
-            u_ro = lerp3(arr_ro[2], arr_ro[4], ep);
-            u_cornerAlpha = p < 0.40 ? smooth(p / 0.40) : p > 0.90 ? smooth((1-p) / 0.10) : 1.0;
+            u_exposure  = 1.4 + Math.sin(p * Math.PI) * 0.8;
+            u_ro        = lerp3(arr_ro[2], arr_ro[4], ep);
+            u_cornerAlpha = p < 0.35 ? smooth(p / 0.35) : p > 0.85 ? smooth((1-p) / 0.15) : 1.0;
             break;
         }
+
         case 7: {
-            u_showFloor = 1.0 - smooth(p); u_showLattice = 1.0 - smooth(p * 1.5);
-            u_showSphere = 1.0 - smooth(p); u_showLights = 1.0 - smooth(p * 1.5);
-            u_showFog = smooth(p); u_showFilmic = 1.0; u_showChroma = 1.0 - smooth(p * 2);
-            u_showTwist = 0.0; u_showParticles = 1.0 - smooth(p * 2); u_particleCount = 4_000;
-            u_particleSpeed = 0.3; u_exposure = 1.4 * (1.0 - smooth(p));
-            u_overlayAlpha = p < 0.08 ? smooth(p / 0.08) : 1.0;
-            u_cornerAlpha  = 0.0;
-            u_ro = lerp3(arr_ro[4], arr_ro[0], ease(p));
+            // Geometry OFF — frozen world drains into singularity.
+            //
+            // FIX: Ring blooms immediately on smooth(p) from p=0.
+            // Warp drain is delayed — only starts at p=0.25, giving a clear
+            // "here is the black hole" moment before consumption begins.
+            u_showFloor = 0.0; u_showLattice = 0.0; u_showSphere = 0.0; u_showLights = 0.0;
+            u_showFog = 0.0; u_showFilmic = 1.0; u_showChroma = 0.0; u_showTwist = 0.0;
+            u_showParticles = smooth(clamp(1.0 - p * 2.0, 0.0, 1.0));
+            u_particleCount = 6_000;
+            u_particleSpeed = 0.8 + ep * 2.0;
+            u_freezeActive  = 1.0;
+
+            // Ring: full bloom from the start of the scene
+            u_showBlackHole = smooth(p);
+            u_bhPulse       = u_audioLow * 0.6 + u_audioMid * 0.3 + u_audioHigh * 0.1;
+
+            // Warp: delayed 25% — drain only kicks in after ring is established
+            const warpOnset = clamp((p - 0.25) / 0.75);
+            u_bhWarp        = smooth(smooth(warpOnset));   // double-smooth for sharp finish
+
+            u_exposure      = 1.5 * (1.0 - smooth(p * 0.9));
+            u_overlayAlpha  = 0.0;
+            u_ro            = [...arr_ro[4]];
+
+            // FIX: Card fade pushed to p>0.75 so full quote + attribution lands
+            u_cornerAlpha = p < 0.20 ? smooth(p / 0.20) : p > 0.75 ? smooth((1-p) / 0.25) : 1.0;
+            break;
+        }
+
+        case 8: {
+            // Credits — scene opens into near-black.
+            // FIX: Ghost warp at 0.04 creates a barely-perceptible spacetime shimmer
+            // behind the names — the world is gone but the curvature lingers.
+            u_showFloor = 0.0; u_showLattice = 0.0; u_showSphere = 0.0; u_showLights = 0.0;
+            u_showFog = 0.0; u_showFilmic = 1.0; u_showTwist = 0.0; u_showChroma = 0.0;
+            u_showParticles = 0.0; u_particleCount = 0; u_particleSpeed = 0.0;
+            u_freezeActive  = 1.0;
+
+            // Ghost warp: subtle constant shimmer (not fading to 0)
+            u_bhWarp        = 0.04;
+            // Ring fades out in the first third
+            u_showBlackHole = smooth(clamp(1.0 - p * 2.5, 0.0, 1.0));
+            u_bhPulse       = 0.0;
+            u_exposure      = smooth(clamp(1.0 - p * 1.2, 0.0, 1.0)) * 0.4;
+            u_overlayAlpha  = p < 0.10 ? smooth(p / 0.10) : 1.0;
+            u_cornerAlpha   = 0.0;
+            u_ro            = [...arr_ro[0]];
+
+            // FIX: greetings at p≥0.45 — music still just barely audible
+            if (p >= 0.45 && !greetingsShown) {
+                greetingsShown = true;
+                activateCard(cards.greetings, currentAudioMs);
+            }
             break;
         }
     }
@@ -368,23 +524,27 @@ function applyScene(app: TinyShade, sceneId: number, progress: number): void {
 
 
 
+// ── Boot ────────────────────────────────────────────────────────────────────
 const start = async () => {
     const app   = await TinyShade.create("canvas");
     const audio = new WavAudioPlugin();
     await audio.load("assets/song.mp3");
 
-    const TOTAL_LENGTH_MS = 127_490;
+    const TOTAL_LENGTH_MS = 127_494;
     const seq = new TSSequencer([], TOTAL_LENGTH_MS, BPM, 4);
     const L   = TOTAL_LENGTH_MS;
 
+    // Scene 5 shortened by 2 000 ms, scene 6 gains those 2 000 ms.
+    // All other durations unchanged. Total still = 127 494 ms.
     seq.timeline = [
-        [seq.getUnitsFromMs(24_000, L), 0x0001, 1],
-        [seq.getUnitsFromMs(16_000, L), 0x0002, 2],
-        [seq.getUnitsFromMs(24_000, L), 0x0004, 3],
-        [seq.getUnitsFromMs(24_000, L), 0x00FF, 4],
-        [seq.getUnitsFromMs(16_000, L), 0x0008, 5],
-        [seq.getUnitsFromMs( 8_000, L), 0x00FF, 6],
-        [seq.getUnitsFromMs(15_490, L), 0x0000, 7],
+        [seq.getUnitsFromMs(23_928, L), 0x0001, 1],   // 0     – 23 928
+        [seq.getUnitsFromMs(15_940, L), 0x0002, 2],   // 23 928 – 39 868
+        [seq.getUnitsFromMs(23_905, L), 0x0004, 3],   // 39 868 – 63 773
+        [seq.getUnitsFromMs(24_369, L), 0x00FF, 4],   // 63 773 – 88 142
+        [seq.getUnitsFromMs( 9_727, L), 0x0008, 5],   // 88 142 – 97 869  (was 11 727)
+        [seq.getUnitsFromMs( 6_214, L), 0x00FF, 6],   // 97 869 – 104 083 (was  4 214)
+        [seq.getUnitsFromMs( 7_964, L), 0x00FF, 7],   // 104 083 – 112 047
+        [seq.getUnitsFromMs(15_447, L), 0x0000, 8],   // 112 047 – 127 494
         [255, 0x0000, 0],
     ];
 
@@ -415,6 +575,15 @@ const start = async () => {
         l.addUniform({ name: "audioLow",      value: () => u_audioLow      });
         l.addUniform({ name: "audioMid",      value: () => u_audioMid      });
         l.addUniform({ name: "audioHigh",     value: () => u_audioHigh     });
+        l.addUniform({ name: "showBlackHole", value: () => u_showBlackHole });
+        l.addUniform({ name: "bhPulse",       value: () => u_bhPulse       });
+        l.addUniform({ name: "bhWarp",        value: () => u_bhWarp        });
+        l.addUniform({ name: "freezeActive",  value: () => u_freezeActive  });
+        l.addUniform({ name: "accumBlend",    value: () => u_accumBlend    });
+        l.addUniform({ name: "cornerFracW",   value: () => CORNER_FRAC_W   });
+        l.addUniform({ name: "cornerFracH",   value: () => CORNER_FRAC_H   });
+        l.addUniform({ name: "cornerMarginX", value: () => CORNER_MARGIN_X });
+        l.addUniform({ name: "cornerMarginY", value: () => CORNER_MARGIN_Y });
     };
 
     const pipeline = await app
@@ -425,6 +594,7 @@ const start = async () => {
         .addCommon(`
             const PI:  f32 = 3.141592654;
             const TAU: f32 = 6.283185307;
+
             fn noise3(p: vec3f) -> f32 {
                 let ip = floor(p); var fp = p - ip;
                 let s  = vec3f(7.0, 157.0, 113.0);
@@ -469,7 +639,7 @@ const start = async () => {
                     pl = vec3f(plxz.x, pl.y, plxz.y);
                 }
                 let ql = abs(pl - round(pl - 0.5) - 0.5);
-                let g  = min(min(max(ql.x, ql.y), max(ql.x, ql.z)), max(ql.y, ql.z)) - 0.05;
+                let g  = min(min(max(ql.x, ql.y), max(ql.x, ql.z)), max(ql.y, ql.z)) - 0.04;
                 let c  = min(0.6 - abs(pl.x + pl.z), 0.45 - abs(pl.y));
                 return max(g, c);
             }
@@ -488,16 +658,16 @@ const start = async () => {
                     var q   = p;
                     let qxy = pR(q.xy, sin(rot) + 0.2);
                     q = vec3f(qxy.x, qxy.y, q.z);
-                    let s1 = length(q + vec3f(0.0, 0.0, 2.5)) - 0.5;
+                    let s1 = length(q + vec3f(0.0, 0.0, 2.5)) - 0.48;
                     if (s1 < d.x) { d = vec3f(s1, 0.9, 0.5); }
-                    let s2 = length(q + vec3f(0.0, 0.0, 2.5)) - 0.445 - 0.09 * sin(43.0 * q.y);
+                    let s2 = length(q + vec3f(0.0, 0.0, 2.5)) - 0.425 - 0.09 * sin(43.0 * q.y);
                     if (s2 < d.x) { d = vec3f(s2, 1.0, 0.1); }
                 }
                 if (u.showLights > 0.05) {
                     let distort = 0.2 * noise3(10.0 * p);
                     const size  = 0.4;
                     let l1_size = size + u.audioLow * 0.35;
-                    let l1 = max(abs(p.z + 2.0) - l1_size, abs(p.x + 2.0) - l1_size) - distort - 0.08;
+                    let l1 = max(abs(p.z + 2.0) - l1_size, abs(p.x + 2.0) - l1_size) - distort - 0.06;
                     if (l1 < d.x) { d = vec3f(l1, 1.0, 0.35); }
                     let lightSize = 0.6 + u.audioMid * 0.8 + 0.2 * sin(u.time * 2.0);
                     let l2 = max(abs(p.z - 1.2) - lightSize, abs(p.x + 1.2) - lightSize) - distort;
@@ -511,19 +681,69 @@ const start = async () => {
                 let up    = cross(right, fwd);
                 return mat3x3<f32>(right, up, fwd);
             }
-            fn flowField(p: vec3f, t: f32) -> vec3f {
-                let scale  = 0.4;
-                let scroll = t * 0.08;
-                let n1 = noise3(p * scale + vec3f(scroll, 0.0,    0.0));
-                let n2 = noise3(p * scale + vec3f(0.0,    scroll, 3.7));
-                let n3 = noise3(p * scale + vec3f(0.0,    7.3,    scroll));
-                return normalize(vec3f(n1, n2, n3) * 2.0 - 1.0);
-            }
             fn fftBin(bin: f32) -> f32 {
                 return textureSample(fft, samp, vec2f((bin + 0.5) / 128.0, 0.5)).r;
             }
+            fn curlNoise(p: vec3f, t: f32) -> vec3f {
+                let e  = 0.1; let sc = 0.55; let scroll = t * 0.06;
+                let nx_dy = noise3((p + vec3f(0.0,e,0.0)) * sc + vec3f(scroll,0.0,0.0));
+                let nx_dz = noise3((p + vec3f(0.0,0.0,e)) * sc + vec3f(scroll,0.0,0.0));
+                let ny_dx = noise3((p + vec3f(e,0.0,0.0)) * sc + vec3f(0.0,scroll,3.7));
+                let ny_dz = noise3((p + vec3f(0.0,0.0,e)) * sc + vec3f(0.0,scroll,3.7));
+                let nz_dx = noise3((p + vec3f(e,0.0,0.0)) * sc + vec3f(7.3,0.0,scroll));
+                let nz_dy = noise3((p + vec3f(0.0,e,0.0)) * sc + vec3f(7.3,0.0,scroll));
+                return normalize(vec3f(nz_dy - ny_dz, nx_dz - nz_dx, ny_dx - nx_dy));
+            }
+            fn vortexForce(pos: vec3f, axis: vec3f, center: vec3f, strength: f32) -> vec3f {
+                let d    = pos - center; let axN = normalize(axis);
+                let par  = dot(d, axN) * axN; let perp = d - par;
+                let tang = cross(axN, perp); let r = length(perp);
+                return -normalize(perp) * strength * 0.4 / (r + 0.3)
+                      + normalize(tang)  * strength * 0.6 / (r + 0.3);
+            }
+            fn attractorForce(pos: vec3f, dest: vec3f, strength: f32) -> vec3f {
+                let d = dest - pos; let r = length(d);
+                return normalize(d) * strength / (r * r + 0.25);
+            }
+
+            // ── Accretion ring ───────────────────────────────────────────────
+            fn bhBlob(U: vec2f, angle: f32) -> f32 {
+                let c = 0.52 * vec2f(cos(angle), sin(angle));
+                return exp(-10.0 * pow(length(U - c), 2.0));
+            }
+            fn blackHole(uv: vec2f, t: f32, pulse: f32) -> vec3f {
+                let U    = (uv * 2.0 - 1.0) * vec2f(16.0/9.0, 1.0);
+                let spin = t * 0.18;
+                let ring = bhBlob(U, 0.65 + spin) + bhBlob(U, 1.60 + spin) + bhBlob(U, 2.80 + spin);
+                let r       = length(U);
+                let horizon = 1.0 - smoothstep(0.0, 0.12, r);
+                let tc   = saturate(r / 0.8);
+                let col  = mix(vec3f(0.1, 0.55, 1.0), vec3f(1.0, 0.65, 0.15), tc);
+                let glow = exp(-8.0 * pow(r - 0.18, 2.0)) * (1.2 + pulse * 0.8);
+                var out  = col * (0.7 + ring * (0.8 + pulse * 0.5)) + vec3f(0.9, 0.85, 0.5) * glow;
+                out *= (1.0 - horizon);
+                out *= 0.5 - 0.5 * cos(min(6.0 * r, 6.283));
+                return out;
+            }
+
+            // ── Gravitational drain — singularity strength ───────────────────
+            // No outer falloff: at warp=1 everything collapses to centre.
+            // Spiral rotates two full turns at warp=1 (Kerr-like differential).
+            fn gravitationalDrainUV(uv: vec2f, warp: f32) -> vec2f {
+                let centre = vec2f(0.5, 0.5);
+                let d   = (uv - centre) * vec2f(16.0/9.0, 1.0);
+                let r   = length(d);
+                let eps = mix(0.25, 0.001, warp);
+                let pull = warp * warp / (r + eps);
+                let angle = warp * TAU * 2.0 * max(0.0, 1.0 - r * 0.8);
+                let cosA  = cos(angle); let sinA = sin(angle);
+                let rotD  = vec2f(cosA * d.x - sinA * d.y, sinA * d.x + cosA * d.y);
+                let warped = centre + (rotD * max(0.0, 1.0 - pull)) / vec2f(16.0/9.0, 1.0);
+                return clamp(warped, vec2f(0.001), vec2f(0.999));
+            }
         `)
 
+        // ── Raymarcher ───────────────────────────────────────────────────────
         .addCompute("computeTex0", `
             ##WORKGROUP_SIZE
             fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -534,15 +754,10 @@ const start = async () => {
                 let k         = vec2f(1.0, -1.0);
                 let eps       = 0.001;
                 let res_ratio = res.x / res.y;
-                let ro = u.ro + vec3f(
-                    0.05 * sin(u.time * 0.3),
-                    0.03 * sin(u.time * 0.4 + 1.0),
-                    0.02 * sin(u.time * 0.5 + 2.0)
-                );
+                let ro = u.ro + vec3f(0.05*sin(u.time*0.3), 0.03*sin(u.time*0.4+1.0), 0.02*sin(u.time*0.5+2.0));
                 let cam = getCameraAxes(ro);
-                var total_radiance = vec3f(0.0);
-                var first_t        = 20.0;
-                let samples        = i32(u.samples);
+                var total_radiance = vec3f(0.0); var first_t = 20.0;
+                let samples = i32(u.samples);
                 for (var s = 0; s < samples; s++) {
                     var jitter = vec2f(0.0);
                     if (s > 0) { jitter = vec2f(rand(&seed), rand(&seed)) - 0.5; }
@@ -554,7 +769,7 @@ const start = async () => {
                     let ryx = pR(rd.yx, rot_time * 0.2 * sin(0.3));
                     rd = vec3f(ryx.y, ryx.x, rd.z);
                     var t = 0.0; var m = vec3f(1e9); var hit = false;
-                    for (var i = 0; i < 80; i++) {
+                    for (var i = 0; i < 77; i++) {
                         m = mapScene(ro + rd * t, rot_time);
                         t += m.x * 0.5;
                         if (t > 20.0) { break; }
@@ -565,7 +780,7 @@ const start = async () => {
                         if (u.showFog > 0.05) { total_radiance += vec3f(0.02, 0.02, 0.06) * u.showFog * 0.4; }
                         continue;
                     }
-                    let hp = ro + rd * t;
+                    let hp  = ro + rd * t;
                     let nor = normalize(
                         k.xyy * mapScene(hp + eps * k.xyy, rot_time).x +
                         k.yyx * mapScene(hp + eps * k.yyx, rot_time).x +
@@ -573,7 +788,7 @@ const start = async () => {
                         k.xxx * mapScene(hp + eps * k.xxx, rot_time).x
                     );
                     let col1 = vec3f(1.0 - m.z, 1.0, 1.0 + m.z);
-                    let rd2 = normalize(mix(reflect(rd, nor), hashHs(&seed), m.y));
+                    let rd2  = normalize(mix(reflect(rd, nor), hashHs(&seed), m.y));
                     var t2 = 0.0; var m2 = vec3f(1e9); var hit2 = false;
                     for (var j = 0; j < 48; j++) {
                         m2 = mapScene(hp + rd2 * t2, rot_time);
@@ -584,7 +799,7 @@ const start = async () => {
                     let col2 = vec3f(1.0 - m2.z, 1.0, 1.0 + m2.z);
                     total_radiance += col2 * step(1.0, m2.y) + col1 * step(1.0, m.y);
                     if (hit2) {
-                        let hp2 = hp + rd2 * t2;
+                        let hp2  = hp + rd2 * t2;
                         let nor2 = normalize(
                             k.xyy * mapScene(hp2 + eps * k.xyy, rot_time).x +
                             k.yyx * mapScene(hp2 + eps * k.yyx, rot_time).x +
@@ -604,6 +819,7 @@ const start = async () => {
             }
         `, 0)
 
+        // ── Particle compute ─────────────────────────────────────────────────
         .addCompute("computeTex1", `
             ##WORKGROUP_SIZE
             fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -611,81 +827,186 @@ const start = async () => {
                 if (f32(id.x) < res.x && f32(id.y) < res.y) { textureStore(outTex, id.xy, vec4f(0.0)); }
                 let i = id.x;
                 if (i >= u32(u.particleCount) || u.showParticles < 0.05) { return; }
-                let ro = u.ro; let cam = getCameraAxes(ro); let cam_fwd = cam[2];
-                let b = i * 4u;
+                let scene = i32(u.sceneId); let prog = u.progress; let t = u.time;
+                let ro = u.ro; let cam = getCameraAxes(ro); let b = i * 4u;
                 var px = data[b]; var py = data[b+1u]; var pz = data[b+2u]; var pw = data[b+3u];
-                let pworld = vec3f(px, py, pz);
-                if (length(pworld) > 7.0 || dot(pworld - ro, cam_fwd) < -1.5 || u.time < 0.1) {
-                    let angle = fract(f32(i)*0.001)*TAU + u.time*0.15;
-                    let radius = 0.3 + fract(f32(i)*0.431)*3.0;
-                    px = cos(angle)*radius; py = (fract(f32(i)*0.717)-0.5)*4.0;
-                    pz = sin(angle)*radius*0.6 - 1.5; pw = 0.3 + fract(f32(i)*7.7)*0.7;
+                let pos = vec3f(px, py, pz);
+                var seed0   = pcg_hash(i + 1u);
+                let p_phase = rand(&seed0);
+                let p_mass  = 0.3 + rand(&seed0) * 0.7;
+                let p_layer = rand(&seed0);
+                var needsRespawn = (u.time < 0.1);
+                if (scene == 1) { needsRespawn = needsRespawn || (length(pos) > 9.0); }
+                else if (scene != 7) {
+                    needsRespawn = needsRespawn || (length(pos) > 7.0) || (dot(pos - ro, cam[2]) < -1.5);
                 }
-                let pos = vec3f(px, py, pz); let field = flowField(pos, u.time);
-                let speed = 0.006 * pw * u.particleSpeed;
-                px += field.x*speed + (-pos.x*0.0003);
-                py += field.y*speed + (-pos.y*0.0003);
-                pz += field.z*speed + (-pos.z*0.0003);
+                if (needsRespawn) {
+                    if (scene == 1) {
+                        let sAngle  = p_phase * TAU; let sElev = (p_layer - 0.5) * PI;
+                        let sRadius = 2.5 + p_mass * 3.5;
+                        px = cos(sAngle)*cos(sElev)*sRadius; py = sin(sElev)*sRadius*0.6;
+                        pz = sin(sAngle)*cos(sElev)*sRadius - 2.0;
+                    } else {
+                        let angle  = p_phase * TAU + t * 0.15;
+                        let radius = 0.3 + p_layer * 3.0;
+                        px = cos(angle)*radius; py = (p_mass - 0.5)*4.0;
+                        pz = sin(angle)*radius*0.6 - 1.5;
+                    }
+                    pw = p_mass;
+                }
+                var newPos = vec3f(px, py, pz);
+                let spd    = u.particleSpeed;
+                if (scene == 1) {
+                    let gather     = smoothstep(0.25, 0.65, prog);
+                    let breathe    = smoothstep(0.60, 0.90, prog);
+                    let audioPulse = u.audioLow * 0.6 + u.audioMid * 0.3 + u.audioHigh * 0.1;
+                    let curl = curlNoise(newPos, t);
+                    var seed1 = pcg_hash(i * 3u + 7u);
+                    let nDir = normalize(vec3f((rand(&seed1)-0.5),(rand(&seed1)-0.5)*0.4,-0.6-rand(&seed1)*0.4));
+                    let neutrinoForce = nDir * (1.0 - gather) * 1.8;
+                    let spiralCenter  = vec3f(0.3*sin(t*0.2+p_phase*TAU),0.2*cos(t*0.17+p_layer*TAU),-2.0);
+                    let vAxis  = vec3f(0.2*sin(t*0.13), 1.0, 0.1*cos(t*0.11));
+                    let spiral = vortexForce(newPos, vAxis, spiralCenter, gather * 1.4);
+                    let breatheR = 1.2 + 0.5*sin(t*1.1+p_phase*TAU) + audioPulse*0.8;
+                    let toC = spiralCenter - newPos; let distC = length(toC);
+                    let breatheF = normalize(toC) * (distC - breatheR) * breathe * 2.5;
+                    newPos += (neutrinoForce + curl*(0.4+gather*0.4) + spiral + breatheF) * spd * 0.009 * p_mass;
+                } else if (scene == 3) {
+                    // FIX: nodePull 0.4 → 0.15 to prevent clustering at lattice intersections.
+                    // Per-particle phase offset on flow direction breaks the lock-step look.
+                    let phaseOffset = p_phase * 0.3;
+                    let flow = normalize(vec3f(0.6 + phaseOffset * 0.2, 0.2, -1.0)) * (0.6 + u.audioLow * 0.6);
+                    let gridNode = floor(newPos + 0.5); let toNode = gridNode - newPos;
+                    let nodePull = normalize(toNode) * smoothstep(1.2, 0.0, length(toNode)) * 0.15;
+                    let curl = curlNoise(newPos * 0.8 + vec3f(t*0.2), t) * 0.30;
+                    newPos += (flow * 1.2 + nodePull * (0.6 + u.audioMid) + curl) * spd * 0.020 * p_mass;
+                } else if (scene == 6) {
+                    let aT = u.audioLow*0.5 + u.audioMid + u.audioHigh*0.8;
+                    let a1 = vec3f(1.5*sin(t*0.3), 0.8*cos(t*0.27), -1.5);
+                    let a2 = vec3f(1.5*cos(t*0.23+2.09), 0.8*sin(t*0.31+2.09), -2.5);
+                    newPos += (attractorForce(newPos,a1,0.4+aT*0.3) + attractorForce(newPos,a2,0.4+aT*0.3)
+                               + curlNoise(newPos*0.7,t)) * spd * 0.028 * p_mass;
+                } else if (scene == 7) {
+                    let bhC   = vec3f(0.0, 0.0, -2.0);
+                    let toS   = bhC - newPos; let dist = length(toS);
+                    let grav  = normalize(toS) * (1.2 + u.bhPulse * 0.6) / (dist * dist + 0.08);
+                    let tang  = normalize(cross(normalize(toS), vec3f(0.0, 1.0, 0.0)));
+                    let orbit = tang * (0.5 / (dist + 0.3));
+                    newPos   += (grav + orbit + curlNoise(newPos*1.4,t)*0.08) * spd * 0.028 * p_mass;
+                } else {
+                    newPos += curlNoise(newPos * 0.5, t) * spd * 0.01 * p_mass;
+                }
+                px = newPos.x; py = newPos.y; pz = newPos.z;
                 data[b]=px; data[b+1u]=py; data[b+2u]=pz; data[b+3u]=pw;
-                let rod = u.ro + vec3f(0.05*sin(u.time*0.3), 0.03*sin(u.time*0.4+1.0), 0.02*sin(u.time*0.5+2.0));
-                let cd = getCameraAxes(rod); let prel = vec3f(px,py,pz) - rod;
-                let pcam = vec3f(dot(prel,cd[0]), dot(prel,cd[1]), dot(prel,cd[2]));
+                let rod  = u.ro + vec3f(0.05*sin(t*0.3),0.03*sin(t*0.4+1.0),0.02*sin(t*0.5+2.0));
+                let cd   = getCameraAxes(rod);
+                let prel = vec3f(px,py,pz) - rod;
+                let pcam = vec3f(dot(prel,cd[0]),dot(prel,cd[1]),dot(prel,cd[2]));
                 if (pcam.z <= 0.01) { return; }
-                let sx = (pcam.x/(pcam.z*1.5))*0.5+0.5; let sy = (pcam.y/(pcam.z*1.5))*-0.5+0.5;
+                let sx = (pcam.x/(pcam.z*1.5))*0.5+0.5;
+                let sy = (pcam.y/(pcam.z*1.5))*-0.5+0.5;
                 let cx = i32(sx*res.x); let cy = i32(sy*res.y);
                 if (cx<1||cx>=i32(res.x)-1||cy<1||cy>=i32(res.y)-1) { return; }
+                if (scene == 7) {
+                    let sc_d = (vec2f(sx, 1.0 - sy) - vec2f(0.5)) * vec2f(16.0/9.0, 1.0);
+                    if (length(sc_d) < 0.12 + u.bhWarp * 0.08) { return; }
+                }
                 let sdn = textureLoad(computeTex0, vec2i(cx, i32(res.y)-cy), 0).a;
-                if (pcam.z > sdn*20.0) { return; }
-                let df = saturate((sdn*20.0 - pcam.z)/0.3);
-                let tc = saturate(length(vec3f(px,py,pz)-vec3f(0.0,0.0,-2.5))/4.0);
-                var pcol = mix(mix(vec3f(1.0,0.85,0.4),vec3f(0.15,0.9,0.8),tc*2.0),
-                               mix(vec3f(0.15,0.9,0.8),vec3f(0.1,0.25,1.0),(tc-0.5)*2.0),
-                               step(0.5, tc));
-                pcol *= (1.0-tc*0.7)*2.5*u.showParticles*df;
-                textureStore(outTex, vec2i(cx,cy), vec4f(pcol,1.0));
+                if (pcam.z > sdn * 20.0 + 0.5) { return; }
+                let tc   = saturate(length(vec3f(px,py,pz) - vec3f(0.0,0.0,-2.5)) / 4.0);
+                var pcol = mix(vec3f(0.1, 0.6, 1.0), vec3f(1.0, 0.7, 0.2), tc);
+                pcol *= 10.0 * u.showParticles;
+                textureStore(outTex, vec2i(cx,cy), vec4f(pcol, 1.0));
             }
         `, 16_000 * 4 * 4)
 
+        // ── pass_rt: temporal accumulation (audio-reactive blend) ────────────
+        // FIX: u.accumBlend replaces hardcoded 0.75.
+        // On strong bass transients accumBlend drops toward 0.35 in JS,
+        // momentarily sharpening the image and giving a beat-reactive feel.
         .addPass("pass_rt", `
             @fragment fn main(in: VSOut) -> @location(0) vec4f {
                 let cur = textureSample(computeTex0, samp, in.uv).rgb;
                 let his = textureSample(prev_pass_rt, samp, in.uv).rgb;
-                return vec4f(mix(cur, his, 0.75), 1.0);
+                return vec4f(mix(cur, his, u.accumBlend), 1.0);
             }
         `)
 
-        .addPass("pass_fx", `
+        // ── pass_freeze: locks when freezeActive = 1 ─────────────────────────
+        .addPass("pass_freeze", `
             @fragment fn main(in: VSOut) -> @location(0) vec4f {
-                if (u.sceneId != 1.0) {
-                    return textureSample(pass_rt, samp, in.uv);
+                let frozen = textureSample(prev_pass_freeze, samp, in.uv);
+                if (u.freezeActive > 0.5) { return frozen; }
+                let live = textureSample(pass_rt, samp, in.uv).rgb;
+                return vec4f(mix(live, frozen.rgb, 0.05), 1.0);
+            }
+        `)
+
+        // ── pass_bh_warp: singularity drain ──────────────────────────────────
+        // For credits (scene 8) bhWarp = 0.04 — ghost shimmer only, no real pull.
+        .addPass("pass_bh_warp", `
+            @fragment fn main(in: VSOut) -> @location(0) vec4f {
+                let fuv  = vec2f(in.uv.x, 1.0 - in.uv.y);
+                let warp = u.bhWarp;
+                if (warp < 0.003) {
+                    return textureSample(pass_freeze, samp, in.uv);
                 }
-                let fade       = 1.0 - smoothstep(0.92, 1.0, u.progress);
-                let zoom       = 1.0 + u.progress * 0.04 * fade + u.audioLow * 0.004 * fade;
-                let zoom_uv    = (in.uv - 0.5) * zoom + 0.5;
-                let shake_x    = (u.audioLow - u.audioMid)  * 0.004 * fade;
-                let shake_y    = (u.audioMid - u.audioHigh) * 0.002 * fade;
-                let suv        = zoom_uv + vec2f(shake_x, shake_y);
-                let wide_band  = floor(suv.y / 0.10);
-                let wide_fft   = fftBin(clamp(wide_band * 6.0, 0.0, 60.0));
-                let wide_sign  = select(-1.0, 1.0, fract(wide_band * 0.618) > 0.5);
-                let wide_off   = wide_fft * wide_sign * 0.022 * fade;
-                let fine_band  = floor(suv.y / 0.025);
-                let fine_fft   = fftBin(clamp(50.0 + fract(fine_band * 0.381) * 40.0, 50.0, 90.0));
-                let fine_sign  = select(-1.0, 1.0, fract(fine_band * 1.618) > 0.5);
-                let fine_off   = fine_fft * fine_sign * 0.005 * fade;
-                let duv = vec2f(
-                    clamp(suv.x + wide_off + fine_off, 0.001, 0.999),
-                    clamp(suv.y,                       0.001, 0.999)
+                let src_uv  = gravitationalDrainUV(fuv, warp);
+                let samp_uv = vec2f(src_uv.x, 1.0 - src_uv.y);
+                var col     = textureSample(pass_freeze, samp, samp_uv).rgb;
+                let centre  = vec2f(0.5, 0.5);
+                let d_uv    = (fuv - centre) * vec2f(16.0/9.0, 1.0);
+                let r_sc    = length(d_uv);
+                let redshift = warp * smoothstep(0.7, 0.0, r_sc) * 0.65;
+                col = vec3f(
+                    col.r + redshift * (1.0 - col.r),
+                    col.g * (1.0 - redshift * 0.5),
+                    col.b * (1.0 - redshift * 0.85)
                 );
-                var col = textureSample(pass_rt, samp, duv).rgb;
-                if (u.overlayAlpha > 0.01) {
-                    let tx = textureSample(overlay, samp, vec2f(duv.x, 1.0 - duv.y));
-                    col = mix(col, tx.rgb, tx.a * u.overlayAlpha);
-                }
+                let horizon_r = 0.08 + warp * warp * 1.2;
+                let disc      = 1.0 - smoothstep(horizon_r * 0.7, horizon_r, r_sc);
+                col *= (1.0 - disc);
                 return vec4f(col, 1.0);
             }
         `)
 
+        // ── pass_fx: per-scene routing ────────────────────────────────────────
+        .addPass("pass_fx", `
+            @fragment fn main(in: VSOut) -> @location(0) vec4f {
+                if (u.sceneId == 1.0) {
+                    let fade      = 1.0 - smoothstep(0.92, 1.0, u.progress);
+                    let zoom      = 1.0 + u.progress * 0.04 * fade + u.audioLow * 0.004 * fade;
+                    let zoom_uv   = (in.uv - 0.5) * zoom + 0.5;
+                    let shake_x   = (u.audioLow - u.audioMid)  * 0.004 * fade;
+                    let shake_y   = (u.audioMid - u.audioHigh) * 0.002 * fade;
+                    let suv       = zoom_uv + vec2f(shake_x, shake_y);
+                    let wide_band = floor(suv.y / 0.10);
+                    let wide_fft  = fftBin(clamp(wide_band * 6.0, 0.0, 60.0));
+                    let wide_sign = select(-1.0, 1.0, fract(wide_band * 0.618) > 0.5);
+                    let wide_off  = wide_fft * wide_sign * 0.022 * fade;
+                    let fine_band = floor(suv.y / 0.025);
+                    let fine_fft  = fftBin(clamp(50.0 + fract(fine_band * 0.381) * 40.0, 50.0, 90.0));
+                    let fine_sign = select(-1.0, 1.0, fract(fine_band * 1.618) > 0.5);
+                    let fine_off  = fine_fft * fine_sign * 0.005 * fade;
+                    let duv = vec2f(
+                        clamp(suv.x + wide_off + fine_off, 0.001, 0.999),
+                        clamp(suv.y, 0.001, 0.999)
+                    );
+                    var col = textureSample(pass_rt, samp, duv).rgb;
+                    if (u.overlayAlpha > 0.01) {
+                        let tx = textureSample(overlay, samp, vec2f(duv.x, 1.0 - duv.y));
+                        col = mix(col, tx.rgb, tx.a * u.overlayAlpha);
+                    }
+                    return vec4f(col, 1.0);
+                }
+                if (u.sceneId >= 7.0) {
+                    return textureSample(pass_bh_warp, samp, in.uv);
+                }
+                return textureSample(pass_rt, samp, in.uv);
+            }
+        `)
+
+        // ── pass_particles ────────────────────────────────────────────────────
         .addPass("pass_particles", `
             @fragment fn main(in: VSOut) -> @location(0) vec4f {
                 let dots = textureSample(computeTex1, samp, in.uv).rgb;
@@ -694,6 +1015,7 @@ const start = async () => {
             }
         `)
 
+        // ── main composite ────────────────────────────────────────────────────
         .main(`
             @fragment fn main(in: VSOut) -> @location(0) vec4f {
                 let fuv = vec2f(in.uv.x, 1.0 - in.uv.y);
@@ -710,7 +1032,7 @@ const start = async () => {
                     col = textureSample(pass_fx, samp, fuv).rgb;
                 }
 
-                col *= u.exposure;
+                col *= (0.6 + u.exposure * 0.6);
 
                 if (u.showFilmic > 0.05) {
                     col = mix(pow(max(col,vec3f(0.0)),vec3f(0.4545)), filmic(col), u.showFilmic);
@@ -723,42 +1045,33 @@ const start = async () => {
                     col = 1.0 - (1.0 - col) * (1.0 - p * 0.6);
                 }
 
+                if (u.showBlackHole > 0.01) {
+                    let bh = blackHole(fuv, u.time, u.bhPulse);
+                    col = 1.0 - (1.0 - col) * (1.0 - bh * u.showBlackHole);
+                }
+
                 if (u.showVignette > 0.5) {
                     let uvc = fuv - 0.5;
                     col *= clamp(1.0 - dot(uvc,uvc)*2.2, 0.0, 1.0);
                 }
 
-                // Full-screen overlay (credits — scene 7)
                 if (u.sceneId != 1.0 && u.overlayAlpha > 0.01) {
                     let tx = textureSample(overlay, samp, in.uv);
                     col = mix(col, tx.rgb, tx.a * u.overlayAlpha);
                 }
 
-                // ── Corner overlay — bottom-right, 80px margin ─────────────
-                // textureSample MUST be called outside any per-pixel branch.
-                // We always sample, then multiply by a mask that is 0 outside
-                // the region — the GPU discards the contribution, not the call.
-                //
-                // Region (screen UV, y=0 top):
-                //   x: [1 - 480/1280 - 80/1280, 1 - 80/1280] = [0.5625, 0.9375]
-                //   y: [1 - 220/720  - 80/720,  1 - 80/720 ] = [0.5833, 0.8889]
+                // ── Corner overlay — resolution-independent ────────────────────
                 {
-                    let cx0 = 1.0 - (480.0/1280.0) - (80.0/1280.0);
-                    let cy0 = 1.0 - (220.0/720.0)  - (80.0/720.0);
-                    let cx1 = cx0 + (480.0/1280.0);
-                    let cy1 = cy0 + (220.0/720.0);
-
-                    // 1.0 inside region, 0.0 outside — no branch
+                    let cx0 = 1.0 - u.cornerFracW - u.cornerMarginX;
+                    let cy0 = 1.0 - u.cornerFracH - u.cornerMarginY;
+                    let cx1 = cx0 + u.cornerFracW;
+                    let cy1 = cy0 + u.cornerFracH;
                     let mask = step(cx0, fuv.x) * step(fuv.x, cx1)
                              * step(cy0, fuv.y) * step(fuv.y, cy1);
-
-                    // Remap to [0,1] within the corner box, flip Y for Canvas-2D
                     let cuv = vec2f(
-                        (fuv.x - cx0) / (cx1 - cx0),
-                        1.0 - (fuv.y - cy0) / (cy1 - cy0)
+                        (fuv.x - cx0) / u.cornerFracW,
+                        1.0 - (fuv.y - cy0) / u.cornerFracH
                     );
-
-                    // Always sample — mask zeroes contribution outside region
                     let ctx = textureSample(corner, samp, cuv);
                     col = mix(col, ctx.rgb, ctx.a * u.cornerAlpha * mask);
                 }
@@ -767,7 +1080,9 @@ const start = async () => {
             }
         `);
 
+    // ── RAF wrapper ──────────────────────────────────────────────────────────
     const raf = window.requestAnimationFrame.bind(window);
+
     window.requestAnimationFrame = (cb) => raf((t) => {
         currentAudioMs = audio.getTime() * 1000;
 

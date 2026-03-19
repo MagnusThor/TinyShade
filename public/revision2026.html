@@ -13,7 +13,7 @@
         }
 
         body {
-            background: #000;
+            background: #fff;
             overflow: hidden;
             width: 100vw;
             height: 100vh;
@@ -25,10 +25,11 @@
 
         canvas#canvas {
             display: block;
-            width: 1280px;
+            width: 1920px;
             /* fixed size */
-            height: 720px;
+            height: 1080px;
             /* fixed size */
+            background-color: #000;
         }
 
         /* ── Start overlay ── */
@@ -153,7 +154,10 @@
 
 <body>
 
-    <canvas id="canvas" width="1280" height="720"></canvas>
+    <canvas id="canvas" width="1920" height="1080"></canvas>
+    <div id="timeline" style="display: none;">
+
+    </div>
 
     <div id="start-overlay">
         <span id="start-title">Lattice of Light</span>

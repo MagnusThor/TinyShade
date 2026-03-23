@@ -13,6 +13,8 @@ export interface UniformEntry {
     value: UniformValue;
 }
 
+
+
 /**
  * Manages memory-aligned WebGPU Uniform Buffers.
  * Handles the strict 16-byte alignment and O(1) update performance.
@@ -182,4 +184,99 @@ export class UniformLayout {
         throw new Error(`Unsupported uniform value type: ${typeof sample}`);
     }
 
+}
+
+
+export class UniformState {
+    private values: Record<string, any> = {};
+
+    set(name: string, value: any) {
+        this.values[name] = value;
+    }
+
+    get(name: string) {
+        return this.values[name];
+    }
+
+    apply(obj: Record<string, any>) {
+        for (const k in obj) this.values[k] = obj[k];
+    }
+
+    getAll() {
+        return this.values;
+    }
+}
+
+
+export function bindUniforms(l: any, state: UniformState, names: string[]) {
+    names.forEach(name => {
+        l.addUniform({
+            name,
+            value: () => state.get(name)
+        });
+    });
+}
+
+type Entry = [number, number, number, Record<string, any>?];
+
+export function createSequenceDSL(seq: any) {
+
+    const timeline: Entry[] = [];
+
+    function make(durationUnits: number) {
+        let flags = 0;
+        let sceneId = 0;
+        const params: Record<string, any> = {};
+
+        const api = {
+
+            fx(f: number) {
+                flags |= f;
+                return api;
+            },
+
+            scene(id: number) {
+                sceneId = id;
+                return api;
+            },
+
+            // 🔥 GENERIC UNIFORM SET
+            set(name: string, value: any) {
+                params[name] = value;
+                return api;
+            },
+
+            // 🔥 MULTI SET
+            setMany(obj: Record<string, any>) {
+                Object.assign(params, obj);
+                return api;
+            },
+
+            done() {
+                timeline.push([
+                    durationUnits,
+                    flags,
+                    sceneId,
+                    Object.keys(params).length ? params : undefined
+                ]);
+                return api;
+            }
+        };
+
+        return api;
+    }
+
+    function S(ms: number) {
+        return make(seq.getUnitsFromMs(ms, seq.L));
+    }
+
+    S.bars = (bars: number) =>
+        make(seq.getUnitsFromBars(bars, seq.L));
+
+    function build() {
+        timeline.push([255, 0, 0]);
+        return timeline;
+    }
+
+    return { S, build };
 }

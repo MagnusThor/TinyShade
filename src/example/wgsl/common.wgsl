@@ -2,7 +2,9 @@
 const PI: f32 = 3.141592654;
 const TAU: f32 = 6.283185307;
 const OFF: f32 = 0.7;
+const EPSILON: f32 = 1e-6;
 const ZZ_GRID: f32 = 22.0;
+
 const tomb_probability: f32 = .1;
 const fov: f32 = 2.0;
 

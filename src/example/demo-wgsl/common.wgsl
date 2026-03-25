@@ -1,5 +1,6 @@
 const PI:  f32 = 3.141592654;
 const TAU: f32 = 6.283185307;
+const EPSILON: f32 = 1e-6;
 
 // ── Palette ──────────────────────────────────────────────────────
 // Particle colour ramp  (cool → warm, by distance from scene centre)
@@ -349,7 +350,47 @@ fn lensFlare(uv: vec2f, t: f32, audioLow: f32, strength: f32) -> vec3f {
     let chromaSpoke = vec3f(clamp(sR, 0.0, 1.0), spokes, clamp(sB, 0.0, 1.0)) * 0.55;
     let rings  = C_BH_GLOW  * (ring1 + ring2 + ring3)
                 + C_SUN_HALO * ghost;
-    let out    = rings + chromaSpoke;
+
+    // ── Musk-style ghost circles ──────────────────────────────────
+    // uvd = uv * length(uv) is Musk's key trick: it smears each pixel
+    // toward the opposite side of frame, projecting ghost artefacts
+    // along the axis that passes through the light source.
+    // All coords here are in aspect-corrected screen space centred at origin.
+    // asp already declared above in lensFlare()
+    let sun_ac = (SUN_POS - 0.5) * asp;               // sun in aspect-corrected [-0.5..0.5] space
+    let uv_ac  = (uv - 0.5) * asp;                    // pixel in same space
+    let uvd    = uv_ac * length(uv_ac);               // Musk distortion
+
+    // Tier 1 — tight bright circles closest to sun on the axis
+    let f2  = max(1.0 / (1.0 + 32.0 * pow(length(uvd + 0.80 * sun_ac), 2.0)), 0.0) * 0.25;
+    let f22 = max(1.0 / (1.0 + 32.0 * pow(length(uvd + 0.85 * sun_ac), 2.0)), 0.0) * 0.23;
+    let f23 = max(1.0 / (1.0 + 32.0 * pow(length(uvd + 0.90 * sun_ac), 2.0)), 0.0) * 0.21;
+
+    // Tier 2 — medium bokeh blobs, softer, further along axis
+    let uvx1 = mix(uv_ac, uvd, -0.5);
+    let f4   = max(0.01 - pow(length(uvx1 + 0.40 * sun_ac), 2.4), 0.0) * 6.0;
+    let f42  = max(0.01 - pow(length(uvx1 + 0.45 * sun_ac), 2.4), 0.0) * 5.0;
+    let f43  = max(0.01 - pow(length(uvx1 + 0.50 * sun_ac), 2.4), 0.0) * 3.0;
+
+    // Tier 3 — small sharp pips on opposite side of centre from sun
+    let uvx2 = mix(uv_ac, uvd, -0.4);
+    let f5   = max(0.01 - pow(length(uvx2 + 0.20 * sun_ac), 5.5), 0.0) * 2.0;
+    let f52  = max(0.01 - pow(length(uvx2 + 0.40 * sun_ac), 5.5), 0.0) * 2.0;
+    let f53  = max(0.01 - pow(length(uvx2 + 0.60 * sun_ac), 5.5), 0.0) * 2.0;
+
+    // Tier 4 — large soft arcs near far side
+    let uvx3 = mix(uv_ac, uvd, -0.5);
+    let f6   = max(0.01 - pow(length(uvx3 - 0.30 * sun_ac), 1.6), 0.0) * 6.0;
+    let f62  = max(0.01 - pow(length(uvx3 - 0.325 * sun_ac), 1.6), 0.0) * 3.0;
+    let f63  = max(0.01 - pow(length(uvx3 - 0.35 * sun_ac), 1.6), 0.0) * 5.0;
+
+    // RGB-split gives prismatic colour fringing across the chain
+    let musk_r = f2  + f4  + f5  + f6;
+    let musk_g = f22 + f42 + f52 + f62;
+    let musk_b = f23 + f43 + f53 + f63;
+    let musk   = vec3f(musk_r, musk_g, musk_b) * 0.6;
+
+    let out    = rings + chromaSpoke + musk;
     return clamp(out * strength, vec3f(0.0), vec3f(1.0));
 }
 
@@ -365,4 +406,57 @@ fn gravitationalDrainUV(uv: vec2f, warp: f32) -> vec2f {
     let rotD  = vec2f(cosA * d.x - sinA * d.y, sinA * d.x + cosA * d.y);
     let warped = centre + (rotD * max(0.0, 1.0 - pull)) / vec2f(16.0/9.0, 1.0);
     return clamp(warped, vec2f(0.001), vec2f(0.999));
+}
+
+
+fn rotate(a: f32) -> mat2x2<f32> {
+    let s = sin(a);
+    let c = cos(a);
+    return mat2x2<f32>(c, s, -s, c);
+}
+
+fn path(v: f32) -> vec3<f32> {
+    return vec3<f32>(
+        cos(v * 0.2 + sin(v * 0.1) * 2.0) * 3.0,
+        sin(v * 0.2 + cos(v * 0.3)) * 3.0,
+        v
+    );
+}
+
+fn hash33(p3_in: vec3<f32>) -> vec3<f32> {
+    var p3 = fract(p3_in * vec3<f32>(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yxz + 33.33);
+    return fract((p3.xxy + p3.yxx) * p3.zyx);
+}
+
+fn hash13(p3: vec3<f32>) -> f32 {
+    return fract(dot(p3, cos(p3.yzx)));
+}
+
+fn hash12(p: vec2<f32>) -> f32 {
+    var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+fn fbm(p: vec3<f32>) -> f32 {
+    var amp: f32 = 1.0;
+    var fre: f32 = 1.0;
+    var n: f32 = 0.0;
+    for (var i: f32 = 0.0; i < 5.0; i += 1.0) {
+        n += amp * abs(dot(cos(p * fre), vec3<f32>(0.06)));
+        amp *= 0.5;
+        fre *= 2.0;
+    }
+    return n;
+}
+
+fn checkFlag(flags: f32, bit: u32) -> bool {
+    let f = u32(flags);
+    return (f & (1u << bit)) != 0u;
+}
+
+fn getFlag(flags: f32, bit: u32) -> f32 {
+    if checkFlag(flags, bit) { return 1.0; }
+    return 0.0;
 }

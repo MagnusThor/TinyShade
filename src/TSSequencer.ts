@@ -1,5 +1,6 @@
 export class TSSequencer {
     onUpdate?: (state: { sceneId: number; progress: number; flags: number }) => void;
+    state?: { progress: number; flags: number; sceneId: number; }; 
 
     constructor(
         public timeline: any[][], 
@@ -55,6 +56,8 @@ export class TSSequencer {
             flags: activeScene[1],
             sceneId: activeScene[2]
         };
+
+        this.state = state;
 
         this.onUpdate?.(state);  
         

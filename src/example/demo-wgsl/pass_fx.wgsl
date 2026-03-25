@@ -1,4 +1,12 @@
 @fragment fn main(in: VSOut) -> @location(0) vec4f {
+
+
+    if (u.sceneId == 3.0) {
+        return textureSample(pass_tunnel, samp, in.uv);
+        //return vec4f(1.0,1.0,.0,1.0);
+    }
+
+
     if (u.sceneId == 1.0) {
         let fade      = 1.0 - smoothstep(0.92, 1.0, u.progress);
         let zoom      = 1.0 + u.progress * 0.04 * fade + u.audioLow * 0.004 * fade;

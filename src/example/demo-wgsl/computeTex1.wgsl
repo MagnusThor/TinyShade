@@ -2,9 +2,14 @@
     fn main(@builtin(global_invocation_id) id: vec3u) {
         let res = u.resolution.xy;
         if (f32(id.x) < res.x && f32(id.y) < res.y) { textureStore(outTex, id.xy, vec4f(0.0)); }
+      
         let i = id.x;
+
         if (i >= u32(u.particleCount) || u.showParticles < 0.05) { return; }
-        let scene = i32(u.sceneId); let prog = u.progress; let t = u.time;
+       
+        let scene = i32(u.sceneId); 
+        let prog = u.progress; 
+        let t = u.time;
         let ro = u.ro; let cam = getCameraAxes(ro); let b = i * 4u;
         var px = data[b]; var py = data[b+1u]; var pz = data[b+2u]; var pw = data[b+3u];
         let pos = vec3f(px, py, pz);
@@ -13,10 +18,13 @@
         let p_mass  = 0.3 + rand(&seed0) * 0.7;
         let p_layer = rand(&seed0);
         var needsRespawn = (u.time < 0.1);
+
         if (scene == 1) { needsRespawn = needsRespawn || (length(pos) > 9.0); }
+
         else if (scene != 7) {
             needsRespawn = needsRespawn || (length(pos) > 7.0) || (dot(pos - ro, cam[2]) < -1.5);
         }
+        
         if (needsRespawn) {
             if (scene == 1) {
                 let sAngle  = p_phase * TAU; let sElev = (p_layer - 0.5) * PI;
